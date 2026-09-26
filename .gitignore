@@ -1,10 +1,11 @@
 .idea
 .codebuddy
+.vs
+bin
+obj
 test*
-*.log'
+*.log
 *.json
 *.png
-.vs/
-bin/
-obj/
+*.apk
 *.user
