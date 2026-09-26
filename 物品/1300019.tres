@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="物品图标数据" format=3 uid="uid://bdu7jmis0jc5e"]
+
+[ext_resource type="Script" uid="uid://0rckjrpipmfs" path="res://resources/背包/物品/图标/物品图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://b1ehy7qcb04pp" path="res://Assets/res/item/icon/物品/1300019.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 1300019
+"名称" = "逍遥散"
+"质量" = 1
+"使用等级" = 60
+"功效" = 1
+"功效数值" = 400.0
+"功效时间" = 10
+cd = 10
+"描述" = "治血虚劳倦，五心烦热，每秒补血400点，持续10秒。"
+metadata/_custom_type_script = "uid://0rckjrpipmfs"

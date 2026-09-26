@@ -1,0 +1,105 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net10.0-android</TargetFrameworks>
+    <!-- Android 必须是 Exe（有 Activity）；桌面用 WinExe 避免弹控制台。 -->
+    <OutputType Condition="'$(TargetFramework)' == 'net10.0-android'">Exe</OutputType>
+    <OutputType Condition="'$(TargetFramework)' != 'net10.0-android'">WinExe</OutputType>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <!-- 复用 wpf/GlobalUsings.cs（Core 各文件依赖这些 global using），故关掉隐式 using -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>Gfp.Mobile</RootNamespace>
+    <AssemblyName>gfp-mobile</AssemblyName>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <ApplicationIcon>..\icon.ico</ApplicationIcon>
+    <Version>0.1.0</Version>
+    <ApplicationTitle>功夫派存档工具</ApplicationTitle>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-android'">
+    <SupportedOSPlatformVersion>24.0</SupportedOSPlatformVersion>
+    <!-- 自用侧载，不需要商店包 -->
+    <AndroidPackageFormat>apk</AndroidPackageFormat>
+    <ApplicationId>com.yierpai.savetool</ApplicationId>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
+    <!-- ⚠⚠ ABI 控制踩过的坑（务必按这里写的来）：
+         .NET Android SDK 的 DefaultProperties.targets 里有这两行：
+             <RuntimeIdentifiers Condition="'$(RuntimeIdentifier)'=='' And '$(RuntimeIdentifiers)'==''">android-arm64;android-x64</RuntimeIdentifiers>
+             <RuntimeIdentifier  Condition="'$(RuntimeIdentifiers)'!='' And '$(RuntimeIdentifier)'!=''" />   ← 清空
+         即【两个同时有值时，单数 RuntimeIdentifier 会被清空】。
+         所以：① 必须用【复数 RuntimeIdentifiers】；
+              ② 写了多个 RID 时实测最终只出一个（Windows 上探到 x86_64），真机装不上；
+              ③ 正确做法就是只给一个 —— 默认 arm64（真机），模拟器时命令行覆盖：
+                 dotnet publish -f net10.0-android -p:RuntimeIdentifiers=android-x64
+         ❌ 也不要再用 AndroidSupportedAbis：已废弃（warning XA0036）。 -->
+    <RuntimeIdentifiers>android-arm64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <!-- ⚠ 权限清单必须放在 Properties/AndroidManifest.xml（.NET Android 的默认查找位置）。
+       放在 Platforms/Android/ 下会被静默忽略 —— 实测 aapt2 里看不到任何自定义权限。 -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-android'">
+    <AndroidManifest>Properties\AndroidManifest.xml</AndroidManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.3" />
+    <!-- ⚠ 不引用 Avalonia.Fonts.Inter：Inter 只有拉丁字符，会把默认字体族换成无 CJK 的版本，
+         导致中文变豆腐块（我们改用系统字体族 + Skia 字形回退）。 -->
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.3" Condition="'$(TargetFramework)' != 'net10.0-android'" />
+    <PackageReference Include="Avalonia.Android" Version="12.1.3" Condition="'$(TargetFramework)' == 'net10.0-android'" />
+    <!-- Avalonia.Diagnostics 在 NuGet 上最高只到 11.3.22（12.x 未发布该包），故不引用。 -->
+  </ItemGroup>
+
+  <!-- ⚠⚠ Platforms/Android/** 只在 Android 目标下编译。
+       `Platforms/` 是 MAUI 的目录约定；本项目用的是纯 Microsoft.NET.Sdk，
+       【不会】自动排除它 —— 不做这一步的话，net10.0（桌面）目标会因为找不到
+       Android.* / Avalonia.Android 类型而报一堆 CS0246/CS0234 编译失败。 -->
+  <ItemGroup Condition="'$(TargetFramework)' != 'net10.0-android'">
+    <Compile Remove="Platforms\Android\**\*.cs" />
+  </ItemGroup>
+
+  <!-- ★ 直接链接复用 wpf/Core 里的纯托管文件（不复制，单点维护）。
+       刻意不引入：SevenZip.cs（7z.dll 是 Windows x64 native）、Win.cs（user32.dll）、
+       IndexRange.cs 与 IsExternalInit.cs（net10 的 BCL 已自带，引入会冲突）。 -->
+  <ItemGroup>
+    <Compile Include="..\wpf\GlobalUsings.cs" Link="Core\GlobalUsings.cs" />
+    <Compile Include="..\wpf\Core\Gdec.cs" Link="Core\Gdec.cs" />
+    <Compile Include="..\wpf\Core\Variant.cs" Link="Core\Variant.cs" />
+    <Compile Include="..\wpf\Core\VariantCodec.cs" Link="Core\VariantCodec.cs" />
+    <Compile Include="..\wpf\Core\Relief.cs" Link="Core\Relief.cs" />
+    <Compile Include="..\wpf\Core\Save.cs" Link="Core\Save.cs" />
+    <Compile Include="..\wpf\Core\Backup.cs" Link="Core\Backup.cs" />
+    <!-- Archive.cs 只用 System.IO.Compression（跨平台 ✓），仅 7z/rar 分支才调 SevenZip。
+         ⚠ 刻意不链接 SevenZip.cs（7z.dll / Win.cs 都是 Windows x64 native），
+            改用同命名空间的存根 Core\SevenZipStub.cs，走到 7z/rar 时明确报错。 -->
+    <Compile Include="..\wpf\Core\Archive.cs" Link="Core\Archive.cs" />
+  </ItemGroup>
+
+  <!-- 嵌入中文字体（子集化版，仅 1.74MB）。
+       ⚠ 为什么必须内嵌：Android 上 Skia 只暴露 34 个具名字体族（sans-serif-* / source-sans-pro），
+       【没有一个含 CJK 字形】（MatchFamily("sans-serif") 对 '你'(U+4F60) 返回字形 id 0，
+       "Noto Sans CJK SC" 等名字返回 null；/system/fonts/NotoSansCJK-Regular.ttc 是以
+       fonts.xml 的语言回退注册的，不是具名字体族）。
+       ⚠ 且"不指定 FontFamily 交给 Skia 回退"也【不行】—— 实测若不设字体，ComboBox 同样豆腐块。
+       ⇒ 只能自带字体。
+       当前字体：微软雅黑（C:\Windows\Fonts\msyh.ttc 的 index 0 = Microsoft YaHei），
+       经 fontTools 子集化（脚本 temp\subset_yahei.py；字符集 temp\gfp_chars.txt，
+       ASCII + GB2312 共 7546 字），18.68MB 压到 1.74MB。
+       ⚠ 微软雅黑是方正商业字体，自用可接受；若要公开分发建议换 Noto Sans CJK SC
+       （Apache 2.0，脚本 temp\subset_noto.py，从模拟器 NotoSansCJK-Regular.ttc 提 index 2，子集后 2.92MB）。 -->
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
+  <!-- 装备数据库内嵌进程序集。LogicalName 必须是裸文件名，因为
+       Relief.ReadEmbedded() 是按 "伊尔装备图标数据.json" 这种名字取的。 -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\装备\*.json">
+      <LogicalName>%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+</Project>

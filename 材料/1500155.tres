@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="材料图标数据" format=3]
+
+[ext_resource type="Script" uid="uid://ci4rludyfqpqx" path="res://resources/背包/材料/图标/材料图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://djctr781ac01a" path="res://Assets/res/item/icon/材料/1500155.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 1500155
+"名称" = "脊璇翼翅"
+"质量" = 1
+"描述" = "脊璇的翼翅，十字路口虫眠墓穴产出."
+metadata/_custom_type_script = "uid://ci4rludyfqpqx"

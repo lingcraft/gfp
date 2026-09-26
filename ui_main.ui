@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>513</width>
+    <height>97</height>
+   </rect>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>513</width>
+    <height>97</height>
+   </size>
+  </property>
+  <property name="maximumSize">
+   <size>
+    <width>513</width>
+    <height>97</height>
+   </size>
+  </property>
+  <property name="windowTitle">
+   <string>功夫派怀旧服存档工具</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <widget class="QLabel" name="path_label">
+    <property name="geometry">
+     <rect>
+      <x>9</x>
+      <y>9</y>
+      <width>495</width>
+      <height>18</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>存档位置：</string>
+    </property>
+    <property name="wordWrap">
+     <bool>true</bool>
+    </property>
+    <property name="textInteractionFlags">
+     <set>Qt::TextInteractionFlag::TextSelectableByMouse</set>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_account">
+    <property name="geometry">
+     <rect>
+      <x>9</x>
+      <y>38</y>
+      <width>44</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>账号：</string>
+    </property>
+   </widget>
+   <widget class="QComboBox" name="account_combo">
+    <property name="geometry">
+     <rect>
+      <x>45</x>
+      <y>36</y>
+      <width>80</width>
+      <height>24</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_char">
+    <property name="geometry">
+     <rect>
+      <x>133</x>
+      <y>38</y>
+      <width>44</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>角色：</string>
+    </property>
+   </widget>
+   <widget class="QComboBox" name="char_combo">
+    <property name="geometry">
+     <rect>
+      <x>168</x>
+      <y>36</y>
+      <width>170</width>
+      <height>24</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="relief_btn">
+    <property name="geometry">
+     <rect>
+      <x>344</x>
+      <y>36</y>
+      <width>50</width>
+      <height>24</height>
+     </rect>
+    </property>
+    <property name="toolTip">
+     <string>给予&lt;=10级的角色缺少的鲲鹏套装装备</string>
+    </property>
+    <property name="text">
+     <string>减负</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_backup">
+    <property name="geometry">
+     <rect>
+      <x>9</x>
+      <y>68</y>
+      <width>44</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>备份：</string>
+    </property>
+   </widget>
+   <widget class="QComboBox" name="restore_combo">
+    <property name="geometry">
+     <rect>
+      <x>44</x>
+      <y>66</y>
+      <width>294</width>
+      <height>24</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="backup_btn">
+    <property name="geometry">
+     <rect>
+      <x>344</x>
+      <y>66</y>
+      <width>50</width>
+      <height>24</height>
+     </rect>
+    </property>
+    <property name="toolTip">
+     <string>备份账号存档</string>
+    </property>
+    <property name="text">
+     <string>备份</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="restore_btn">
+    <property name="geometry">
+     <rect>
+      <x>400</x>
+      <y>66</y>
+      <width>50</width>
+      <height>24</height>
+     </rect>
+    </property>
+    <property name="toolTip">
+     <string>恢复账号备份存档</string>
+    </property>
+    <property name="text">
+     <string>恢复</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="delete_btn">
+    <property name="geometry">
+     <rect>
+      <x>456</x>
+      <y>66</y>
+      <width>50</width>
+      <height>24</height>
+     </rect>
+    </property>
+    <property name="toolTip">
+     <string>删除账号备份存档</string>
+    </property>
+    <property name="text">
+     <string>删除</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="export_btn">
+    <property name="geometry">
+     <rect>
+      <x>400</x>
+      <y>36</y>
+      <width>50</width>
+      <height>24</height>
+     </rect>
+    </property>
+    <property name="toolTip">
+     <string>导出账号存档到桌面</string>
+    </property>
+    <property name="text">
+     <string>导出</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="import_btn">
+    <property name="geometry">
+     <rect>
+      <x>456</x>
+      <y>36</y>
+      <width>50</width>
+      <height>24</height>
+     </rect>
+    </property>
+    <property name="toolTip">
+     <string>导入账号存档到游戏</string>
+    </property>
+    <property name="text">
+     <string>导入</string>
+    </property>
+   </widget>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

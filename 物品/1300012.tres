@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="物品图标数据" format=3 uid="uid://duo3fqyc0xmes"]
+
+[ext_resource type="Script" uid="uid://0rckjrpipmfs" path="res://resources/背包/物品/图标/物品图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://bjubb08kj8x5q" path="res://Assets/res/item/icon/物品/1300012.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 1300012
+"名称" = "玉露丹"
+"质量" = 1
+"使用等级" = 45
+"功效" = 1
+"功效数值" = 210.0
+"功效时间" = 10
+cd = 10
+"描述" = "玉露果制成的珍贵药材，每秒补血210点，持续10秒。"
+metadata/_custom_type_script = "uid://0rckjrpipmfs"

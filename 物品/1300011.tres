@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="物品图标数据" format=3 uid="uid://bkxc1s6xkvccv"]
+
+[ext_resource type="Script" uid="uid://0rckjrpipmfs" path="res://resources/背包/物品/图标/物品图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://cqnv7hwmq0yal" path="res://Assets/res/item/icon/物品/1300011.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 1300011
+"名称" = "混元膏"
+"质量" = 1
+"使用等级" = 35
+"功效" = 1
+"功效数值" = 180.0
+"功效时间" = 10
+cd = 10
+"描述" = "混元果制成的药膏，每秒补血180点，持续10秒。"
+metadata/_custom_type_script = "uid://0rckjrpipmfs"

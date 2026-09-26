@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="物品图标数据" format=3 uid="uid://bxubwsmiqqnu0"]
+
+[ext_resource type="Script" uid="uid://0rckjrpipmfs" path="res://resources/背包/物品/图标/物品图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://bb3s8o63l4jgw" path="res://Assets/res/item/icon/物品/1300004.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 1300004
+"名称" = "奇异果"
+"质量" = 1
+"使用等级" = 15
+"功效" = 1
+"功效数值" = 70
+"功效时间" = 11
+cd = 11
+"描述" = "清香鲜美，来自异域的果实，每秒补血70点，持续11秒。"
+metadata/_custom_type_script = "uid://0rckjrpipmfs"

@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="材料图标数据" format=3 uid="uid://cg8tbpddbyy3y"]
+
+[ext_resource type="Script" uid="uid://ci4rludyfqpqx" path="res://resources/背包/材料/图标/材料图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://u0i4835o23e" path="res://Assets/res/item/icon/材料/1500580.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 1500580
+"名称" = "请神符"
+"质量" = 1
+"描述" = "收集20个请神符，可以去剑仙那里邀请各路守护神，伏魔塔关卡掉落。"
+metadata/_custom_type_script = "uid://ci4rludyfqpqx"

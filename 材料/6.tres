@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="材料图标数据" format=3 uid="uid://dbfr38tccyuav"]
+
+[ext_resource type="Script" uid="uid://ci4rludyfqpqx" path="res://resources/背包/材料/图标/材料图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://bvn0xug84m02g" path="res://Assets/res/item/icon/材料/6.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 6
+"名称" = "通宝"
+"描述" = "通宝"
+"最大堆叠数量" = 999999999
+metadata/_custom_type_script = "uid://ci4rludyfqpqx"

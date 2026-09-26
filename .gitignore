@@ -1,0 +1,10 @@
+.idea
+.codebuddy
+test*
+*.log'
+*.json
+*.png
+.vs/
+bin/
+obj/
+*.user

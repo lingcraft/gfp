@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="材料图标数据" format=3]
+
+[ext_resource type="Script" uid="uid://ci4rludyfqpqx" path="res://resources/背包/材料/图标/材料图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://4c6e4yxk2xo0" path="res://Assets/res/item/icon/材料/1503025.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 1503025
+"名称" = "小天将召唤符"
+"描述" = "可召唤小天将作为自己的守护神，不可交易。"
+metadata/_custom_type_script = "uid://ci4rludyfqpqx"

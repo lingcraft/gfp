@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="材料图标数据" format=3 uid="uid://k7fo6y87rus"]
+
+[ext_resource type="Script" uid="uid://ci4rludyfqpqx" path="res://resources/背包/材料/图标/材料图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://k2ttembkd11g" path="res://Assets/res/item/icon/材料/1540013.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 1540013
+"名称" = "高级火焰"
+"质量" = 4
+"描述" = "高级火焰，橙色品质装备强化材料，可强化9-12级，不可交易。"
+metadata/_custom_type_script = "uid://ci4rludyfqpqx"

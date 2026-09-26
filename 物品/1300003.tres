@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="物品图标数据" format=3 uid="uid://40il344hk3sf"]
+
+[ext_resource type="Script" uid="uid://0rckjrpipmfs" path="res://resources/背包/物品/图标/物品图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://ng3ibn5821ug" path="res://Assets/res/item/icon/物品/1300003.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 1300003
+"名称" = "八宝粽"
+"质量" = 1
+"使用等级" = 10
+"功效" = 1
+"功效数值" = 50
+"功效时间" = 10
+cd = 10
+"描述" = "用八种食材精心制作的粽子，每秒补血50点，持续10秒。"
+metadata/_custom_type_script = "uid://0rckjrpipmfs"

@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="材料图标数据" format=3]
+
+[ext_resource type="Script" uid="uid://ci4rludyfqpqx" path="res://resources/背包/材料/图标/材料图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://bltoghetdciqw" path="res://Assets/res/item/icon/材料/1500133.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 1500133
+"名称" = "火之精元"
+"质量" = 1
+"描述" = "鬼火的火之精元，上好的打造材料，可出售给商人换取功夫豆."
+metadata/_custom_type_script = "uid://ci4rludyfqpqx"

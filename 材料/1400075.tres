@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="材料图标数据" format=3]
+
+[ext_resource type="Script" uid="uid://ci4rludyfqpqx" path="res://resources/背包/材料/图标/材料图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://bx14s75be62mv" path="res://Assets/res/item/icon/材料/1400075.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 1400075
+"名称" = "流光圈"
+"描述" = "VIP专属，只要是VIP3及其以上等级的小侠士均可免费获得，立刻打开仙兽面板孵化身份的象征——二阶仙兽流光鹿吧！"
+"最大堆叠数量" = 999
+metadata/_custom_type_script = "uid://ci4rludyfqpqx"

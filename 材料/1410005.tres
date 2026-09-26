@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="材料图标数据" format=3]
+
+[ext_resource type="Script" uid="uid://ci4rludyfqpqx" path="res://resources/背包/材料/图标/材料图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://ds3gb8nguwjrg" path="res://Assets/res/item/icon/材料/1410005.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 1410005
+"名称" = "灼热之石"
+"描述" = "开启二阶仙兽灼热之灵的物品，开启后仙兽暂时处于幼年期，需要特殊方法才可进入成长期。无法出售。"
+"最大堆叠数量" = 999
+metadata/_custom_type_script = "uid://ci4rludyfqpqx"

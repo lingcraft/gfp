@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="物品图标数据" format=3 uid="uid://b6jghl80fg0kl"]
+
+[ext_resource type="Script" uid="uid://0rckjrpipmfs" path="res://resources/背包/物品/图标/物品图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://bxjag4pbivqej" path="res://Assets/res/item/icon/物品/1300302.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 1300302
+"名称" = "莲蓉糕"
+"质量" = 1
+"功效" = 3
+"功效数值" = 200.0
+"HP功效数值" = 200.0
+"MP功效数值" = 200.0
+cd = 8
+"描述" = "瞬回食品，瞬间补血200点，补气200点。"
+metadata/_custom_type_script = "uid://0rckjrpipmfs"

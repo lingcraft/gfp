@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="材料图标数据" format=3 uid="uid://bj2e80f1drjid"]
+
+[ext_resource type="Script" uid="uid://ci4rludyfqpqx" path="res://resources/背包/材料/图标/材料图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://dss7emd73f15y" path="res://Assets/res/item/icon/材料/1500903.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 1500903
+"名称" = "紫色碎片"
+"质量" = 4
+"描述" = "由小于80级装备分解出来的精华，通体呈紫色。"
+metadata/_custom_type_script = "uid://ci4rludyfqpqx"

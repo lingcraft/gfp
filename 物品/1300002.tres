@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="物品图标数据" format=3 uid="uid://dn5u2laquvm77"]
+
+[ext_resource type="Script" uid="uid://0rckjrpipmfs" path="res://resources/背包/物品/图标/物品图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://bns5eysm07jjv" path="res://Assets/res/item/icon/物品/1300002.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 1300002
+"名称" = "红枣"
+"质量" = 1
+"使用等级" = 5
+"功效" = 1
+"功效数值" = 30
+"功效时间" = 12
+cd = 12
+"描述" = "富有营养的食物，每秒补血30点，持续12秒。"
+metadata/_custom_type_script = "uid://0rckjrpipmfs"

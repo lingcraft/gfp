@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <!-- 读游戏存档所在的外部公共目录 /storage/emulated/0/Documents/YierPai/saves。
+       注意：Android 11+ 上 READ/WRITE_EXTERNAL_STORAGE 对"非媒体文件"已失效，
+       真正起作用的是 MANAGE_EXTERNAL_STORAGE（"所有文件访问权限"），
+       且系统不会弹窗，必须引导用户在系统设置里手动开启。 -->
+  <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+  <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+  <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+
+</manifest>

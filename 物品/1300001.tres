@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="物品图标数据" format=3 uid="uid://dbmuxhqm514rk"]
+
+[ext_resource type="Script" uid="uid://0rckjrpipmfs" path="res://resources/背包/物品/图标/物品图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://ctvc30hlslrjo" path="res://Assets/res/item/icon/物品/1300001.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 1300001
+"名称" = "馒头"
+"质量" = 1
+"功效" = 1
+"功效数值" = 20
+"功效时间" = 7
+cd = 7
+"描述" = "最常见的食物，每秒补血20点，持续7秒。"
+metadata/_custom_type_script = "uid://0rckjrpipmfs"

@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="材料图标数据" format=3]
+
+[ext_resource type="Script" uid="uid://ci4rludyfqpqx" path="res://resources/背包/材料/图标/材料图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://dyp11gakwdaln" path="res://Assets/res/item/icon/材料/1500269.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 1500269
+"名称" = "青古石"
+"质量" = 1
+"描述" = "青石眼的青古石，可出售给商人换取功夫豆."
+metadata/_custom_type_script = "uid://ci4rludyfqpqx"

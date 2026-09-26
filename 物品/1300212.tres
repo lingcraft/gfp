@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="物品图标数据" format=3 uid="uid://b2qsp2iv7uq0e"]
+
+[ext_resource type="Script" uid="uid://0rckjrpipmfs" path="res://resources/背包/物品/图标/物品图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://baumoo3rupbf4" path="res://Assets/res/item/icon/物品/1300212.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 1300212
+"名称" = "中级龙涎香"
+"质量" = 1
+"使用等级" = 20
+"功效" = 3
+"功效数值" = 40.0
+"HP功效数值" = 40.0
+"MP功效数值" = 10.0
+"功效时间" = 20
+cd = 20
+"描述" = "珍贵的药材，能行气活血，每秒补血40点，补气10点，持续20秒。"
+metadata/_custom_type_script = "uid://0rckjrpipmfs"

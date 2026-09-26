@@ -1,0 +1,122 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Gfp.Mobile.MainView">
+
+  <!-- 根用 Grid：Toast 与确认遮罩要盖在滚动内容之上 -->
+  <Grid>
+
+    <ScrollViewer>
+      <StackPanel Margin="12" Spacing="8">
+
+        <!-- 「所有文件访问权限」引导区：未授权时显示。
+             ⚠ 该权限系统不会弹窗，只能用户手动去设置里开，所以必须自己给入口。 -->
+        <Border x:Name="PermPanel" IsVisible="False"
+                Background="#FFF4E5" BorderBrush="#FFB74D" BorderThickness="1"
+                CornerRadius="6" Padding="10">
+          <StackPanel Spacing="6">
+            <TextBlock Text="⚠ 需要「所有文件访问权限」" FontWeight="SemiBold" />
+            <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.85"
+                       Text="读取游戏存档需要此权限。系统不会自动弹窗，请点下面按钮，在打开的设置页里打开开关后返回。" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button x:Name="GrantBtn" Content="去授权" Padding="12,4" />
+              <Button x:Name="RecheckBtn" Content="重新检测" Padding="12,4" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+
+        <!-- 存档位置（对应 WPF 版顶部那行路径） -->
+        <TextBlock x:Name="PathText" TextWrapping="Wrap" FontSize="12" Opacity="0.75" />
+
+        <!-- 账号 + 角色（对应 WPF 版第一行）
+             ⚠ 宽度按 WPF 版的视觉比例分配：账号框窄、角色框宽（约 1 : 2.2），
+               不用 1:1 —— 角色名形如「喵喵喵喵喵（派派）Lv.6」比账号名长得多。 -->
+        <Grid ColumnDefinitions="Auto,1*,Auto,2.2*">
+          <TextBlock Grid.Column="0" Text="账号" VerticalAlignment="Center" Margin="0,0,6,0" />
+          <ComboBox Grid.Column="1" x:Name="AccBox" HorizontalAlignment="Stretch" />
+          <TextBlock Grid.Column="2" Text="角色" VerticalAlignment="Center" Margin="10,0,6,0" />
+          <ComboBox Grid.Column="3" x:Name="CharBox" HorizontalAlignment="Stretch" />
+        </Grid>
+
+        <!-- 操作：减负 / 导出 / 导入（对应 WPF 版第一行右侧三个键） -->
+        <Grid ColumnDefinitions="*,*,*">
+          <Button x:Name="ReliefBtn" Content="减负" Grid.Column="0"
+                  HorizontalAlignment="Stretch" Margin="0,0,4,0" />
+          <Button x:Name="ExportBtn" Content="导出" Grid.Column="1"
+                  HorizontalAlignment="Stretch" Margin="4,0,4,0" />
+          <Button x:Name="ImportBtn" Content="导入" Grid.Column="2"
+                  HorizontalAlignment="Stretch" Margin="4,0,0,0" />
+        </Grid>
+
+        <!-- 备份记录（对应 WPF 版第二行） -->
+        <Grid ColumnDefinitions="Auto,*">
+          <TextBlock Grid.Column="0" Text="备份" VerticalAlignment="Center" Margin="0,0,6,0" />
+          <ComboBox Grid.Column="1" x:Name="BakBox" HorizontalAlignment="Stretch" />
+        </Grid>
+
+        <!-- 备份 / 恢复 / 删除（对应 WPF 版第二行右侧三个键） -->
+        <Grid ColumnDefinitions="*,*,*">
+          <Button x:Name="BackupBtn" Content="备份" Grid.Column="0"
+                  HorizontalAlignment="Stretch" Margin="0,0,4,0" />
+          <Button x:Name="RestoreBtn" Content="恢复" Grid.Column="1"
+                  HorizontalAlignment="Stretch" Margin="4,0,4,0" />
+          <Button x:Name="DelBakBtn" Content="删除" Grid.Column="2"
+                  HorizontalAlignment="Stretch" Margin="4,0,0,0" />
+        </Grid>
+
+        <Border Background="#14000000" CornerRadius="6" Padding="10" Margin="0,2,0,0">
+          <TextBlock x:Name="StatusText" TextWrapping="Wrap" FontSize="12" Opacity="0.9" />
+        </Border>
+
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- Toast：底部浮出的轻提示，不阻塞操作，几秒后自动消失。
+         成功类消息走这里；失败/需要用户确认的走下面的遮罩弹窗。 -->
+    <Border x:Name="ToastBox" IsVisible="False"
+            VerticalAlignment="Bottom" HorizontalAlignment="Center"
+            Margin="20,0,20,44" Padding="16,10"
+            Background="#E0000000" CornerRadius="20">
+      <TextBlock x:Name="ToastText" Foreground="White" FontSize="13"
+                 TextWrapping="Wrap" MaxWidth="420" />
+    </Border>
+
+    <!-- 遮罩弹窗：确认（是/否）与提示（只有一个「确定」）共用这一块。
+         规格对齐电脑版 MessageWindow：图标 + 标题同排，按钮为「是」「否」。 -->
+    <Border x:Name="ConfirmOverlay" IsVisible="False" Background="#99000000">
+      <Border Background="White" CornerRadius="8" Padding="16" Margin="24"
+              VerticalAlignment="Center" HorizontalAlignment="Stretch">
+        <StackPanel Spacing="12">
+
+          <!-- 图标 + 标题 -->
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <Grid Width="28" Height="28" VerticalAlignment="Center">
+              <Ellipse x:Name="IconCircle" Width="28" Height="28" Fill="#2E7CB3"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+              <!-- ⚠ 只用 ASCII 字符（i / ? / ! / x）画图标里的符号：
+                   ⚠ ❌ ℹ 这些 Unicode 符号不在内嵌字体的 GB2312 子集里，会渲染成豆腐块。 -->
+              <TextBlock x:Name="IconGlyph" Text="?" Foreground="White"
+                         FontSize="17" FontWeight="Bold"
+                         HorizontalAlignment="Center" VerticalAlignment="Center"
+                         Margin="0,0,0,2" />
+            </Grid>
+            <TextBlock x:Name="ConfirmTitle" FontWeight="Bold" FontSize="16" Foreground="#222222"
+                       VerticalAlignment="Center" TextWrapping="Wrap" />
+          </StackPanel>
+
+          <TextBlock x:Name="ConfirmMsg" TextWrapping="Wrap" Foreground="#444444" />
+
+          <!-- ⚠ 按钮顺序对齐电脑版 MessageWindow：先「是」后「否」，即【是】在左、【否】在右。
+               快捷键也照电脑版来：回车 = 是（IsDefault），Esc = 否（IsCancel）。 -->
+          <Grid ColumnDefinitions="*,*">
+            <Button x:Name="ConfirmYes" Content="是" Grid.Column="0"
+                    HorizontalAlignment="Stretch" Margin="0,0,5,0" IsDefault="True" />
+            <Button x:Name="ConfirmNo" Content="否" Grid.Column="1"
+                    HorizontalAlignment="Stretch" Margin="5,0,0,0" IsCancel="True" />
+          </Grid>
+        </StackPanel>
+      </Border>
+    </Border>
+
+  </Grid>
+
+</UserControl>

@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="材料图标数据" format=3 uid="uid://0goacj4cxmrf"]
+
+[ext_resource type="Script" uid="uid://ci4rludyfqpqx" path="res://resources/背包/材料/图标/材料图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://j8u7vjmehlr1" path="res://Assets/res/item/icon/材料/1500567.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 1500567
+"名称" = "火龙珠"
+"质量" = 3
+"描述" = "拥有火属性的珠子，机器金木水火土五颗龙珠可以召唤出青龙许愿，也可以用于铸造装备。"
+metadata/_custom_type_script = "uid://ci4rludyfqpqx"

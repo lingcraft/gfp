@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="材料图标数据" format=3]
+
+[ext_resource type="Script" uid="uid://ci4rludyfqpqx" path="res://resources/背包/材料/图标/材料图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://dxipdvptqdkd5" path="res://Assets/res/item/icon/材料/2100001.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 2100011
+"名称" = "戈隆的照片"
+"质量" = 1
+"描述" = "记录着戈隆的形象，只在较高难度的虎庙秘道掉落，可以在我的卡牌中插入相应栏位中。"
+"最大堆叠数量" = 999
+metadata/_custom_type_script = "uid://ci4rludyfqpqx"

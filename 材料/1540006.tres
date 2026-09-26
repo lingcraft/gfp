@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="材料图标数据" format=3 uid="uid://djmhlufbdl6ox"]
+
+[ext_resource type="Script" uid="uid://ci4rludyfqpqx" path="res://resources/背包/材料/图标/材料图标数据.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://wn5y1cflcid2" path="res://Assets/res/item/icon/材料/1540006.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+"材料图片" = ExtResource("2")
+id = 1540006
+"名称" = "蓝色火焰"
+"质量" = 4
+"描述" = "蓝色火焰，蓝色品质装备强化材料，最高可强化至+8，不可交易。"
+metadata/_custom_type_script = "uid://ci4rludyfqpqx"
