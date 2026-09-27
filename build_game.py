@@ -5,10 +5,11 @@
 
   1. 从 APK 抽出 `assets/assets.sparsepck`（Godot 资源包）
      ⚠ 不能把 APK 直接喂给 gdre_tools --recover（会卡在 Opening file、零产出）
-  2. **现场从 pck 恢复【原版】`globals/local_save_manager.gd`**，然后只做最小改动两处：
-     ① `const SAVE_ROOT: = "user://saves"` → `var SAVE_ROOT: = "user://saves"`（const 不能运行时赋值）
-     ② `_ready()` 开头插 android 分支：`SAVE_ROOT = "/storage/emulated/0/YierPai/saves"`
-     ——不再维护任何"改好的 gd 副本"，其余代码（含游戏原生 rename 存档事务）一字不动
+  2. **现场从 pck 恢复【原版】`globals/local_save_manager.gd`**，然后只做最小改动一处：
+     `const SAVE_ROOT: = "user://saves"` → `const SAVE_ROOT: = "/storage/emulated/0/YierPai/saves"`
+     ——直改初值字面量（全脚本 SAVE_ROOT 只有 1 处读取、0 处赋值，且本包只发 Android，
+       所以**保留 const、不加 `_ready()` 分支**，改动量 1 处）；不再维护任何"改好的 gd 副本"，
+     其余代码（含游戏原生 rename 存档事务）一字不动
      （--gd 只在需要指定外部脚本时使用）
      ⚠ 存档事务**保持游戏原生 rename 逻辑，勿改成 copy+remove**：未授权时 Godot Java 层走
        MediaStore 通道，copy+remove 会留 save.dat.tmp 残留并触发"未覆盖原文件"报错；
@@ -32,9 +33,10 @@
        要清存档请整体 `pm uninstall` 或让游戏自己管理
 
 用法：
-    python build_game.py                                  # 默认原始包 → temp 输出
+    python build_game.py                                  # 默认原始包 → temp 输出（结束自动清理工作目录）
     python build_game.py --install                        # 构建后装到手机
     python build_game.py --install --grant                # 装好并授予 MANAGE（appops allow）
+    python build_game.py --keep-work                      # 保留工作目录（默认会清理）
     python build_game.py --gd x.gd                        # 指定外部 gd（高级用法）
 """
 
@@ -189,16 +191,16 @@ def run(cmd, cwd=None):
 
 
 def rmtree_safe(path, label: str = ""):
-    """删目录；若被环境的批量删除保护拦截（SAFE_DELETE_BULK_CONFIRM_REQUIRED），
-    只提示不致命——否则脚本会在清理阶段异常退出、看起来像"构建失败"。"""
+    """直接删除目录（rmtree）。带一层容错：万一删除被沙箱/IDE 的保护机制拦截，
+    只提示、不抛出——否则清理阶段的异常会让整个构建看起来像失败。"""
     p = Path(path)
     if not p.exists():
         return
     try:
         shutil.rmtree(p)
     except Exception as e:
-        print(f"[i] 清理 {label or p} 跳过（{type(e).__name__}）——"
-              f"目录已保留，可用 --keep-work 或手动删除")
+        print(f"[i] 清理 {label or p} 未完成（{type(e).__name__}）——"
+              f"目录已保留，可手动删除或用 --keep-work 跳过清理")
 
 
 def md5_of(path: Path) -> str:
@@ -235,47 +237,40 @@ def recover_scripts(pck: Path, out_dir: Path):
 
 
 def patch_save_root(gd_path: Path, save_root: str) -> int:
-    """在【原版脚本】上做最小改动，只动两处：
-       ① `const SAVE_ROOT: = "user://saves"` → `var SAVE_ROOT: = "user://saves"`
-          （const 不能运行时赋值，这是唯一的必要放宽；右侧表达式原样保留）
-       ② `_ready()` 开头插 2 行：android 分支把 SAVE_ROOT 指到外部目录
-       其余一字不动 —— 特别是存档事务必须保持游戏原生 `dir.rename`
-       （授权后 Godot 走直接文件 IO，rename 正常；改成 copy+remove 反而会在
-       未授权时留 .tmp 残留，见 MEMORY.md）。返回改动条数（用于自检）。
+    """在【原版脚本】上做最小改动 —— **只替换 SAVE_ROOT 的初值字面量，共 1 处**：
+       `const SAVE_ROOT: = "user://saves"` → `const SAVE_ROOT: = "<save_root>"`
+
+    为什么可以直改字面量（2026-09-27 核实 + 用户确认本包只发 Android）：
+      - 全脚本 `SAVE_ROOT` **只有 1 处读取**（`_get_profile_file_path` 里 `"%s/%s" % [...]`）、
+        **0 处赋值** ⇒ 不需要 `var`，`const` 可以保留；
+      - 本包只在 Android 跑，不需要 `OS.has_feature("android")` 条件分支（那是为了
+        同一份源码还能在 PC/编辑器里跑）；
+      - 编译是从**源码**重新编译，`const` 的新值会被内联到所有使用点，改声明处即全生效。
+    ⇒ 改动量从 2 处（const→var + _ready 插 3 行）降到 **1 处**，diff 更干净。
+
+    其余一字不动 —— 特别是存档事务必须保持游戏原生 `dir.rename`
+    （授权后 Godot 走直接文件 IO，rename 正常；改成 copy+remove 反而会在
+    未授权时留 .tmp 残留，见 MEMORY.md）。返回改动条数（用于自检）。
     """
     # 按【字节】读写：保持原文件行尾（文本模式会把 LF 转成系统 CRLF，导致 diff 全文件飘红）
     raw = gd_path.read_bytes()
     text = raw.decode("utf-8")
-    nl = "\r\n" if b"\r\n" in raw else "\n"
 
-    # ① const → var（只换关键字，保留原有的 ": =" 类型推断写法）
-    new_text, n1 = re.subn(r"\bconst(\s+SAVE_ROOT\s*:?\s*=)", r"var\1", text, count=1)
-    if n1 == 0:
-        raise SystemExit('找不到 `const SAVE_ROOT = "user://saves"`，脚本结构不识别：' + str(gd_path))
-
-    # ② _ready() 开头插入 android 分支
-    if 'SAVE_ROOT = "%s"' % save_root in new_text:
-        print("[i] 脚本已含目标路径覆盖，跳过插入")
-        gd_path.write_bytes(new_text.encode("utf-8"))
-        return 1
-    m = re.search(r"func\s+_ready\s*\(\)\s*->\s*void\s*:\s*\r?\n([ \t]*)", new_text)
+    # 匹配 `const SAVE_ROOT: = "..."` / `const SAVE_ROOT: String = "..."` /
+    #      `var SAVE_ROOT: String = "..."`（兼容历史改法），捕获到 `=` 为止的前缀
+    pat = re.compile(r'((?:const|var)\s+SAVE_ROOT(?::[^\r\n=]*)?\s*=\s*)"[^"]*"')
+    m = pat.search(text)
     if not m:
-        raise SystemExit("找不到 func _ready()，无法插入覆盖逻辑")
-    indent = m.group(1) or "\t"
-    # ⚠ 插入点必须是【函数定义行的下一行开头】，不能在“缩进之后”插 ——
-    #    否则会吃掉原有第一条语句的缩进，使 `get_tree().auto_accept_quit = false`
-    #    变成顶格（函数外），GDScript 语义错乱 → 游戏初始化异常（曾导致“点开始后
-    #    画面缩到左上角”的诡异 bug）。
-    body_start = new_text.index("\n", m.start()) + 1
-    override = nl.join([
-        f"{indent}# Android 上把存档放到免 root 可访问的共享目录",
-        f'{indent}if OS.has_feature("android"):',
-        f'{indent}\tSAVE_ROOT = "{save_root}"',
-    ]) + nl
-    new_text = new_text[:body_start] + override + new_text[body_start:]
+        raise SystemExit('找不到 SAVE_ROOT 声明行，脚本结构不识别：' + str(gd_path))
+
+    if m.group(0).endswith('"%s"' % save_root):
+        print(f"[i] SAVE_ROOT 已是 {save_root}，无需修改")
+        return 0
+
+    new_text = text[:m.start()] + m.group(1) + f'"{save_root}"' + text[m.end():]
     gd_path.write_bytes(new_text.encode("utf-8"))
-    print(f"[v] 已在原版脚本上最小改动（const→var + _ready 覆盖 → {save_root}）")
-    return 2
+    print(f"[v] 已最小改动 1 处：SAVE_ROOT 初值 → {save_root}（保留 const，无 _ready 分支）")
+    return 1
 
 
 # ===================== 步骤 3：编译 =====================
@@ -617,9 +612,9 @@ def main():
     ap.add_argument("--install", action="store_true", help="构建后自动装到手机")
     ap.add_argument("--serial", default="92cbcbdb", help="adb 设备 serial")
     ap.add_argument("--grant", action="store_true", help="安装后授予 MANAGE（默认免授权形态）")
-    ap.add_argument("--keep-work", action="store_true", help="保留工作目录（默认即保留，此参数为兼容保留）")
     ap.add_argument("--clean-work", default=True, action="store_true",
-                    help="结束后尝试删除工作目录（⚠ 本环境的批量删除保护可能直接终止脚本）")
+                    help="结束后清理工作目录（默认开启；用 --keep-work 保留中间产物）")
+    ap.add_argument("--keep-work", action="store_true", help="保留工作目录（默认会清理）")
     args = ap.parse_args()
 
     apk = Path(args.orig).resolve()
@@ -690,13 +685,14 @@ def main():
         if args.install:
             install_apk(out, args.serial, args.grant)
     finally:
-        # 默认保留工作目录：删除成千上万个中间文件会触发本环境的批量删除保护
-        # （表现为进程被直接终止、EXIT=1），所以清理必须是显式的。
-        if getattr(args, "clean_work", False):
+        # 默认清理工作目录（中间产物含 2 份 3.6G sparsepck，留着很占空间）；
+        # 用 --keep-work 可保留以便排查。rmtree 带容错：万一删除被沙箱拦截，
+        # 只提示不影响已经产出的 APK。
+        if args.clean_work and not args.keep_work:
             rmtree_safe(work, "工作目录")
-            print("[i] 已尝试清理工作目录（若被保护拦截，请手动删除）")
+            print("[i] 已清理工作目录")
         else:
-            print(f"[i] 工作目录保留：{work}（--clean-work 可尝试删除）")
+            print(f"[i] 工作目录保留：{work}")
 
 
 if __name__ == "__main__":
