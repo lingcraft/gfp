@@ -147,8 +147,8 @@ internal static class Demo
         var before = Relief.OwnedKunpengIds(payload, target.Idx).Count;
         Line($"    目标角色 {Relief.Display(target)}：先摘掉背包里 {removed} 件鲲鹏，当前 {before}/{want} 件");
 
-        var (ok, msg, payload2, version2) = Workflow.ApplyRelief(p, target);
-        Line($"    返回：ok={ok} version={version2}");
+        var (ok, title, msg, payload2, version2) = Workflow.ApplyRelief(p, target);
+        Line($"    返回：ok={ok} title={title} version={version2}");
         Line($"    文案：{msg}");
         Check("减负执行成功", ok, msg);
 
@@ -159,8 +159,8 @@ internal static class Demo
             Check("装备数确实增加并落盘", after > before, $"{before} -> {after}");
 
             // 再跑一次应当提示"无需减负"
-            var (ok2, msg2, _, _) = Workflow.ApplyRelief(p, target);
-            Check("重复减负被正确拦住", ok2 && msg2.Contains("已拥有"), msg2);
+            var (ok2, title2, msg2, _, _) = Workflow.ApplyRelief(p, target);
+            Check("重复减负被正确拦住", ok2 && msg2.Contains("已拥有"), $"title={title2} {msg2}");
         }
     }
 
@@ -225,7 +225,7 @@ internal static class Demo
         var chars = Relief.Chars(payload);
         var target = chars.FirstOrDefault(c => c.Level <= 10);
 
-        var (okB, msgB) = Workflow.MakeBackup(p);
+        var (okB, _, msgB) = Workflow.MakeBackup(p);
         Line($"    备份：ok={okB} {msgB}");
         Check("备份成功", okB, msgB);
 
@@ -246,7 +246,7 @@ internal static class Demo
             var dirty = Relief.OwnedKunpengIds(Save.LoadPayload(p).payload, target.Idx).Count;
             Line($"    人为改动后（插入假 id）：{dirty} 件");
 
-            var (okR, msgR) = Workflow.Restore(p, baks[0]);
+            var (okR, _, msgR) = Workflow.Restore(p, baks[0]);
             Line($"    恢复：ok={okR} {msgR}");
             Check("恢复成功", okR, msgR);
 
@@ -260,24 +260,30 @@ internal static class Demo
     private static void Step5_ExportImport()
     {
         Line();
-        Line("[5] Workflow.Export() / PrepareImport() / Import()");
+        Line("[5] Workflow.PrepareExport() / Export() / Analyze() / Import()");
 
         var p = Save.ListProfiles()[0];
 
-        var (okE, msgE) = Workflow.Export(p);
+        var (okEP, msgEP, expPath, expExists) = Workflow.PrepareExport(p);
+        Line($"    导出预检：ok={okEP} 已存在={expExists}");
+        Line($"    目标路径 = {expPath}");
+        Check("导出预检通过", okEP, msgEP);
+
+        // ⚠ 文件名必须是【账号名.zip】（对齐电脑版），不能带版本号 / 时间戳
+        Check("导出文件名 = 账号名.zip",
+            Path.GetFileName(expPath) == p.Name + ".zip", Path.GetFileName(expPath));
+
+        var (okE, _, msgE) = Workflow.Export(p, expPath);
         Line($"    导出：ok={okE} {msgE.Replace('\n', ' ')}");
         Check("导出成功", okE, msgE);
+        Check("导出文件存在", File.Exists(expPath));
 
-        var exported = Directory.Exists(Workflow.ExportDir)
-            ? Directory.GetFiles(Workflow.ExportDir, "*.zip")
-            : Array.Empty<string>();
-        Line($"    导出目录 {Workflow.ExportDir} 下 zip 数 = {exported.Length}");
-        Check("导出文件存在", exported.Length > 0);
-
-        if (exported.Length == 0) return;
+        // 再预检一次：同名文件此时已存在 ⇒ 应触发"确认覆盖"分支
+        var (okEP2, _, expPath2, expExists2) = Workflow.PrepareExport(p);
+        Check("重复导出会提示覆盖", okEP2 && expExists2 && expPath2 == expPath);
 
         // --demo 没有 UI，模拟"用户在系统文件管理器里选中了刚导出的那个包"
-        var picked = exported[0];
+        var picked = expPath;
         Line($"    模拟用户选中：{Path.GetFileName(picked)}");
 
         var (okP, msgP, plan) = Workflow.Analyze(picked);
@@ -286,7 +292,7 @@ internal static class Demo
         if (!okP) { Check("导入预检通过", false, msgP); return; }
         Check("导入预检通过", okP, $"账号={plan.Name} 已存在={plan.TargetExists}");
 
-        var (okI, msgI) = Workflow.Import(plan);
+        var (okI, _, msgI) = Workflow.Import(plan);
         Line($"    导入：ok={okI} {msgI}");
         Check("导入执行成功", okI, msgI);
 
@@ -354,7 +360,7 @@ internal static class Demo
 
             plan.Name = fakeName;
             plan.TargetExists = false;
-            var (okI, msgI) = Workflow.Import(plan);
+            var (okI, _, msgI) = Workflow.Import(plan);
             Line($"    Import: ok={okI} {msgI}");
             Check("带兼容转换的导入成功", okI, msgI);
 
@@ -395,7 +401,7 @@ internal static class Demo
         if (baks.Count == 0) { Line("    没有备份可删，跳过。"); return; }
 
         var victim = baks[0];
-        var (ok, msg) = Workflow.DeleteBackup(p, victim);
+        var (ok, _, msg) = Workflow.DeleteBackup(p, victim);
         Line($"    删除：ok={ok} {msg}");
         Check("删除备份成功", ok, msg);
 

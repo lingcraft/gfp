@@ -63,7 +63,9 @@
                   HorizontalAlignment="Stretch" Margin="4,0,0,0" />
         </Grid>
 
-        <Border Background="#14000000" CornerRadius="6" Padding="10" Margin="0,2,0,0">
+        <!-- 状态栏（留痕最近一次操作结果）。⚠ 初始没有内容时整块隐藏，避免空占一块灰底 -->
+        <Border x:Name="StatusPanel" IsVisible="False"
+                Background="#14000000" CornerRadius="6" Padding="10">
           <TextBlock x:Name="StatusText" TextWrapping="Wrap" FontSize="12" Opacity="0.9" />
         </Border>
 
@@ -83,7 +85,9 @@
     <!-- 遮罩弹窗：确认（是/否）与提示（只有一个「确定」）共用这一块。
          规格对齐电脑版 MessageWindow：图标 + 标题同排，按钮为「是」「否」。 -->
     <Border x:Name="ConfirmOverlay" IsVisible="False" Background="#99000000">
-      <Border Background="White" CornerRadius="8" Padding="16" Margin="24"
+      <!-- ⚠ 外层 ConfirmOverlay 负责全屏半透明遮罩；内层 ConfirmDialog 才是白色弹窗卡片。
+           宽度限制只加在 ConfirmDialog 上，避免遮罩只覆盖一半屏幕。 -->
+      <Border x:Name="ConfirmDialog" Background="White" CornerRadius="8" Padding="16" Margin="24"
               VerticalAlignment="Center" HorizontalAlignment="Stretch">
         <StackPanel Spacing="12">
 

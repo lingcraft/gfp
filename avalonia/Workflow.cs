@@ -29,41 +29,55 @@ internal static class Workflow
 
     // ⚠ 方法名刻意不叫 Relief / Backup —— 那样会在本类内遮蔽 Gfp.Core 的同名类型，
     //   导致下面所有 Relief.KunpengIds(...) / Backup.Dir(...) 报 CS0119。
-    public static (bool ok, string msg, Variant payload, string version) ApplyRelief(Profile p, CharInfo c)
+    //
+    // ⚠ 文案严格对齐 PySide6 版（gfp.py）：
+    //   等级过高 → "角色【…】当前 Lv.x，开荒减负仅限等级 <= 10 的新手角色。"
+    //   已拥有   → "角色【…】已拥有鲲鹏之征服者套装，无需减负。"
+    //   完成     → "已给予角色【…】n 件鲲鹏装备到背包"（⚠ 原文没有句号）
+    public static (bool ok, string title, string msg, Variant payload, string version) ApplyRelief(Profile p, CharInfo c)
     {
         if (c.Level > 10)
-            return (false, $"角色【{c.Name}（{c.RoleId}）】当前 Lv.{c.Level}，开荒减负仅限等级 ≤ 10 的新手角色。", Variant.Nil(), "");
+            return (false, "等级过高", $"角色【{c.Name}（{c.RoleId}）】当前 Lv.{c.Level}，开荒减负仅限等级 <= 10 的新手角色。",
+                    Variant.Nil(), "");
 
         try
         {
             var (payload, version) = Save.LoadPayload(p);
             var ids = Relief.KunpengIds(c.RoleId);
+
+            // ⚠ 对齐 PySide6 版：先判"找不到该角色的套装数据"，否则 ids 为空会被下面
+            //   missing.Count == 0 误判成"已拥有鲲鹏之征服者套装"，语义完全相反。
+            if (ids.Count == 0)
+                return (false, "无套装数据", $"找不到角色【{c.RoleId}】的鲲鹏套装数据。", payload, version);
+
             var owned = Relief.OwnedKunpengIds(payload, c.Idx);
             var missing = ids.Where(x => !owned.Contains(x)).ToList();
 
             if (missing.Count == 0)
-                return (true, $"角色【{c.Name}（{c.RoleId}）】已拥有鲲鹏之征服者套装，无需减负。", payload, version);
+                return (true, "已拥有", $"角色【{c.Name}（{c.RoleId}）】已拥有鲲鹏之征服者套装，无需减负。",
+                        payload, version);
 
             Relief.AddToInventory(payload, c.Idx, missing);
             Save.SavePayload(p, payload);
 
             // 重新读一遍，确认真的落盘了（而不是只改了内存里的对象）
             var (payload2, version2) = Save.LoadPayload(p);
-            var after = Relief.OwnedKunpengIds(payload2, c.Idx).Count;
-            var want = ids.Count;
-
-            return (true, $"✓ 已给予角色【{c.Name}（{c.RoleId}）】{missing.Count} 件鲲鹏装备到背包（现在 {after}/{want} 件）。",
+            return (true, "完成", $"已给予角色【{c.Name}（{c.RoleId}）】{missing.Count} 件鲲鹏装备到背包",
                     payload2, version2);
         }
         catch (Exception e)
         {
-            return (false, "写回失败：" + e.Message, Variant.Nil(), "");
+            return (false, "写回失败", "加密回写失败：\n" + e.Message, Variant.Nil(), "");
         }
     }
 
     // ---------- 备份 / 恢复 / 删除 ----------
 
-    public static (bool ok, string msg) MakeBackup(Profile p)
+    // ⚠ 以下文案全部对齐 PySide6 版（gfp.py）：
+    //   备份 → "账号【…】已备份存档：…"   恢复 → "账号【…】已恢复备份存档：…"
+    //   删除 → "账号【…】已删除备份存档：…"
+    //   失败 → "压缩出错：\n…" / "解压出错：\n…" / "删除出错：\n…"
+    public static (bool ok, string title, string msg) MakeBackup(Profile p)
     {
         try
         {
@@ -77,28 +91,28 @@ internal static class Workflow
             Archive.ZipDir(p.Dir, Path.Combine(dir, $"{stamp}.zip"));
 
             var d = Backup.DtFromStamp(stamp);
-            return (true, $"✓ 已备份账号【{p.Name}】：{d?.Render(Disp.YmdHms) ?? stamp}");
+            return (true, "", $"账号【{p.Name}】已备份存档：{d?.Render(Disp.YmdHms) ?? stamp}");
         }
         catch (Exception e)
         {
-            return (false, "备份失败：" + e.Message);
+            return (false, "备份失败", "压缩出错：\n" + e.Message);
         }
     }
 
-    public static (bool ok, string msg) Restore(Profile p, BackupEntry b)
+    public static (bool ok, string title, string msg) Restore(Profile p, BackupEntry b)
     {
         try
         {
             Archive.ZipExtractAll(b.Path, p.Dir);
-            return (true, $"✓ 已把账号【{p.Name}】恢复到备份 {Backup.Fmt(b)}。");
+            return (true, "", $"账号【{p.Name}】已恢复备份存档：{Backup.Fmt(b)}");
         }
         catch (Exception e)
         {
-            return (false, "恢复失败：" + e.Message);
+            return (false, "恢复失败", "解压出错：\n" + e.Message);
         }
     }
 
-    public static (bool ok, string msg) DeleteBackup(Profile p, BackupEntry b)
+    public static (bool ok, string title, string msg) DeleteBackup(Profile p, BackupEntry b)
     {
         try
         {
@@ -110,29 +124,55 @@ internal static class Workflow
                     Directory.Delete(bd);
             }
             catch { }
-            return (true, $"✓ 已删除备份：{Backup.Fmt(b)}");
+            return (true, "", $"账号【{p.Name}】已删除备份存档：{Backup.Fmt(b)}");
         }
         catch (Exception e)
         {
-            return (false, "删除失败：" + e.Message);
+            return (false, "删除失败", "删除出错：\n" + e.Message);
         }
     }
 
     // ---------- 导出 / 导入 ----------
 
-    public static (bool ok, string msg) Export(Profile p)
+    /// <summary>
+    /// 导出预检：算出目标路径，并判断同名文件是否已存在（存在则调用方需先弹"确认覆盖"）。
+    ///
+    /// ⚠ 文件名严格对齐电脑版 gfp.py::do_export_save：
+    ///       dst = desktop_dir() / f"{name}.zip"
+    ///   —— 就是【账号名.zip】，不带版本号、不带时间戳。
+    ///   （之前移动端是 "{name}_{yyyyMMdd_HHmmss}.zip"，已按用户要求改掉。）
+    /// </summary>
+    public static (bool ok, string msg, string path, bool exists) PrepareExport(Profile p)
     {
         try
         {
             Directory.CreateDirectory(ExportDir);
-            // 同样不带版本号（手机版存档没有 save_version，带上只会得到 V0.0.0 这种噪音）
-            var outPath = Path.Combine(ExportDir, $"{p.Name}_{Backup.NowStamp()}.zip");
-            Archive.ZipDir(p.Dir, outPath);
-            return (true, $"✓ 已导出到：\n{outPath}");
+            var path = Path.Combine(ExportDir, p.Name + ".zip");
+            return (true, "", path, File.Exists(path));
         }
         catch (Exception e)
         {
-            return (false, "导出失败：" + e.Message);
+            return (false, "导出出错：\n" + e.Message, "", false);
+        }
+    }
+
+    /// <summary>
+    /// 执行导出。⚠ 同名文件的覆盖确认由调用方在 <see cref="PrepareExport"/> 之后完成 ——
+    /// 对应电脑版 gfp.py::do_export_save 里那段 QMessageBox.question（标题"确认覆盖"）。
+    /// </summary>
+    public static (bool ok, string title, string msg) Export(Profile p, string path)
+    {
+        try
+        {
+            Archive.ZipDir(p.Dir, path);
+            // ⚠ 对齐电脑版：正文为"账号【…】的存档已导出到桌面。" ——
+            //   移动端没有"桌面"，目的地改成实际输出路径（语序保持一致）。
+            //   ⚠ 不要在冒号后加 \n：由 TextWrapping 自动折行即可，短路径能一行放下。
+            return (true, "导出成功", $"账号【{p.Name}】的存档已导出到：{path}");
+        }
+        catch (Exception e)
+        {
+            return (false, "导出失败", "导出出错：\n" + e.Message);
         }
     }
 
@@ -181,7 +221,7 @@ internal static class Workflow
     ///   另外手机版【没有 profile.cfg 机制】，encryption_id 直接用账号名，
     ///   若原样复制电脑版存档（其 encryption_id 可能不等于账号名），游戏会解密失败。
     /// </summary>
-    public static (bool ok, string msg, ImportPlan plan) Analyze(string zipPath)
+    public static (bool ok, string msg, ImportPlan plan) Analyze(string zipPath, string? hintStem = null)
     {
         var plan = new ImportPlan { ZipPath = zipPath };
 
@@ -223,6 +263,11 @@ internal static class Workflow
             var candidates = new List<string>();
             if (!string.IsNullOrWhiteSpace(cfgEnc)) candidates.Add(cfgEnc!);
             if (!candidates.Contains(name)) candidates.Add(name);
+            // ⚠ hintStem = 用户所选文件的原始文件名（不含扩展名）。
+            //   手机版导出的 zip 没有 profile.cfg、也没有目录前缀，账号名只能靠文件名猜，
+            //   多一个候选多一分成功率（例如临时副本名字被改坏时兜底）。
+            if (!string.IsNullOrWhiteSpace(hintStem) && !candidates.Contains(hintStem))
+                candidates.Add(hintStem!);
 
             Variant? payload = null;
             string usedEnc = name;
@@ -239,7 +284,7 @@ internal static class Workflow
             }
 
             if (payload is null)
-                return (false, "无法解密该存档（profile.cfg 与账号名两种 encryption_id 都试过了）。", plan);
+                return (false, "无法解密该存档（profile.cfg、账号名、原始文件名三种 encryption_id 都试过了）。", plan);
 
             plan.SourceEncryptionId = usedEnc;
             var target = Path.Combine(Save.SavesDir, name);
@@ -298,7 +343,7 @@ internal static class Workflow
         }
     }
 
-    public static (bool ok, string msg) Import(ImportPlan plan)
+    public static (bool ok, string title, string msg) Import(ImportPlan plan)
     {
         var name = plan.Name;
         var target = Path.Combine(Save.SavesDir, name);
@@ -311,9 +356,9 @@ internal static class Workflow
             {
                 var bdir = Backup.Dir(name);
                 Directory.CreateDirectory(bdir);
-                var ver = "V0.0.0";
-                try { (_, ver) = Save.LoadPayload(new Profile { Name = name, Dir = target }); } catch { }
-                Archive.ZipDir(target, Path.Combine(bdir, $"{ver}_{Backup.NowStamp()}.zip"));
+                // ⚠ 文件名只用时间戳，对齐 MakeBackup —— 手机版存档没有 save_version，
+                //   带版本号前缀恒为「V0.0.0_…」，纯噪声。
+                Archive.ZipDir(target, Path.Combine(bdir, $"{Backup.NowStamp()}.zip"));
             }
 
             tmp = Archive.ExtractAllToTemp(plan.ZipPath, Kind.Zip);
@@ -351,12 +396,16 @@ internal static class Workflow
                 }
             }
 
-            var note = plan.NeedsConversion ? $"（已做兼容：{string.Join("；", plan.Conversions)}）" : "";
-            return (true, $"✓ 已导入账号【{name}】{note}");
+            // ⚠ 正文对齐 PySide6 版："账号【…】的存档已恢复。"
+            //   电脑版存档的兼容处理说明附在后面（移动端特有，用户需要知道做了什么转换）。
+            var note = plan.NeedsConversion
+                ? "\n\n（已做电脑版兼容处理：" + string.Join("；", plan.Conversions) + "）"
+                : "";
+            return (true, "导入成功", $"账号【{name}】的存档已恢复。{note}");
         }
         catch (Exception e)
         {
-            return (false, "导入失败：" + e.Message);
+            return (false, "导入失败", "解压出错：\n" + e.Message);
         }
         finally
         {

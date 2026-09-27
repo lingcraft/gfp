@@ -21,7 +21,7 @@ cmd = " ".join([
     f"--file-version={version}",
     f"--product-version={version}",
     f"--output-dir=\"{args.dir}\"",
-    f"--output-filename={args.file}",
+    f"--output-filename=\"{args.file}\"",
     "--include-data-files=7z.dll=7z.dll",
     "--include-data-files=zh_CN.qm=zh_CN.qm",
     "--include-data-dir=装备=装备",

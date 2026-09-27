@@ -17,6 +17,11 @@
     <AssemblyTitle>功夫派怀旧服存档工具</AssemblyTitle>
     <Product>功夫派怀旧服存档工具</Product>
     <Version>1.2.0</Version>
+    <!-- 目录变成 git 仓库后，SDK 内置 SourceLink 会把提交哈希以 `+<hash>` 追加到
+         InformationalVersion（资源管理器"产品版本"）后面；关掉保持版本号干净。 -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <!-- "产品版本"=InformationalVersion，默认 3 段 `1.2.1`；补 .0 变成和 FileVersion 一致的 4 段 -->
+    <InformationalVersion>$(Version).0</InformationalVersion>
     <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
   </PropertyGroup>
 

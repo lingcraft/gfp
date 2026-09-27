@@ -13,8 +13,23 @@
     <AssemblyName>gfp-mobile</AssemblyName>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <ApplicationIcon>..\icon.ico</ApplicationIcon>
-    <Version>0.1.0</Version>
-    <ApplicationTitle>功夫派存档工具</ApplicationTitle>
+    <ApplicationTitle>存档工具</ApplicationTitle>
+  </PropertyGroup>
+
+  <!-- 版本号唯一来源 = 根目录 pyproject.toml（与 build_wpf.py 读取的是同一处，保证
+       Python / WPF / Avalonia 三套实现版本一致）。MSBuild 不能直接解析 TOML，
+       用属性函数读全文 + 正则抽取 version 行。
+       ⚠ 正则里的 lookbehind `(?<=` 含 `<`，在 XML 里必须写成 `(?&lt;=`，否则被当成标签。 -->
+  <PropertyGroup>
+    <PyprojectPath>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\pyproject.toml'))</PyprojectPath>
+    <Version>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(PyprojectPath)')), '(?&lt;=version\s*=\s*")[^"]+').ToString())</Version>
+    <!-- versionCode = 主*1000000 + 次*1000 + 补丁（1.2.1 → 1002001；次/补丁段各自 < 1000）。 -->
+    <Major>$([System.Version]::Parse('$(Version)').Major)</Major>
+    <Minor>$([System.Version]::Parse('$(Version)').Minor)</Minor>
+    <Patch>$([System.Version]::Parse('$(Version)').Build)</Patch>
+    <AndroidVersionCode>$([MSBuild]::Add($([MSBuild]::Multiply($(Major), 1000000)), $([MSBuild]::Add($([MSBuild]::Multiply($(Minor), 1000)), $(Patch)))))</AndroidVersionCode>
+    <!-- 不让 SourceLink 把 git 提交哈希追加到 InformationalVersion -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-android'">
@@ -22,8 +37,8 @@
     <!-- 自用侧载，不需要商店包 -->
     <AndroidPackageFormat>apk</AndroidPackageFormat>
     <ApplicationId>com.yierpai.savetool</ApplicationId>
-    <ApplicationVersion>1</ApplicationVersion>
-    <ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>$(AndroidVersionCode)</ApplicationVersion>
+    <ApplicationDisplayVersion>$(Version)</ApplicationDisplayVersion>
     <!-- ⚠⚠ ABI 控制踩过的坑（务必按这里写的来）：
          .NET Android SDK 的 DefaultProperties.targets 里有这两行：
              <RuntimeIdentifiers Condition="'$(RuntimeIdentifier)'=='' And '$(RuntimeIdentifiers)'==''">android-arm64;android-x64</RuntimeIdentifiers>
@@ -92,6 +107,9 @@
        （Apache 2.0，脚本 temp\subset_noto.py，从模拟器 NotoSansCJK-Regular.ttc 提 index 2，子集后 2.92MB）。 -->
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
+    <!-- 桌面窗口/任务栏图标（Window.Icon 用）：icon.ico 是 exe 图标（ApplicationIcon），
+         窗口图标是另一套，需嵌入资源后用 AssetLoader 加载。 -->
+    <AvaloniaResource Include="..\icon.ico" Link="icon.ico" />
   </ItemGroup>
 
   <!-- 装备数据库内嵌进程序集。LogicalName 必须是裸文件名，因为

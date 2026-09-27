@@ -1,0 +1,709 @@
+#!/usr/bin/env python3
+"""一键修改 YierPai.apk 的存档路径（SAVE_ROOT → /sdcard/YierPai/saves）并重打包签名（可选安装）。
+
+完整链路（2026-09-26 双会话实测走通；关键点/坑点见 .codebuddy/memory/MEMORY.md 与 2026-09-26.md）：
+
+  1. 从 APK 抽出 `assets/assets.sparsepck`（Godot 资源包）
+     ⚠ 不能把 APK 直接喂给 gdre_tools --recover（会卡在 Opening file、零产出）
+  2. **现场从 pck 恢复【原版】`globals/local_save_manager.gd`**，然后只做最小改动两处：
+     ① `const SAVE_ROOT: = "user://saves"` → `var SAVE_ROOT: = "user://saves"`（const 不能运行时赋值）
+     ② `_ready()` 开头插 android 分支：`SAVE_ROOT = "/storage/emulated/0/YierPai/saves"`
+     ——不再维护任何"改好的 gd 副本"，其余代码（含游戏原生 rename 存档事务）一字不动
+     （--gd 只在需要指定外部脚本时使用）
+     ⚠ 存档事务**保持游戏原生 rename 逻辑，勿改成 copy+remove**：未授权时 Godot Java 层走
+       MediaStore 通道，copy+remove 会留 save.dat.tmp 残留并触发"未覆盖原文件"报错；
+       授权后走直接文件 IO，rename 正常（授权引导见步骤 4.5 的 Java 层注入）
+  3. `gdre_tools --compile --bytecode=4.5.0-stable` 编译回 `.gdc`
+     ⚠ 字节码版本必须是原包字节码版本 4.5.0-stable（ebc36a7），≠ 引擎版本
+  4. `gdre_tools --pck-patch` 把新 `.gdc` 打回 pck
+  5. AXML 二进制 patch 给 Manifest 补 3 个存储权限（MANAGE/READ/WRITE）
+     ⚠ **动态解析字符串池索引**（硬编码索引换包必错）；HyperOS 上声明 READ/WRITE
+       （未授权）即免授权可写 Android/media；零声明走 MediaStore 通道报"错误码 1"
+  5.5. **dex 注入**：`GodotActivity.onCreate` 开头插"所有文件访问"权限检查 → 启动即秒弹
+     系统授权页（在引擎加载 3.6G pck **之前**，比 GDScript `_ready` 快 6 倍以上）
+  6. Java `ZipOutputStream` 一次替换 sparsepck + Manifest + dex 三个条目
+     ⚠ Python zipfile 写 >2GB STORED 会产出非法 ZIP，必须 Java；
+     ⚠ sparsepck 必须 STORED（DEFLATED → Godot 无法 mmap → 卡死 splash 假死）；
+     ⚠ 必须剔除 META-INF/*.MF|.SF|.RSA；javac 含中文必须 -encoding UTF-8
+  7. uber-apk-signer 签名 + 外置 zipalign 对齐（内置 32 位打不开 >2GB）
+  8. 可选 --install：adb push + `pm install`（>2GB 禁用 adb install 流式/增量）
+     ⚠ 免授权形态安装后**不要用 `adb shell rm` 删 Android/media 下的存档文件**
+       （会留 MediaStore 孤儿记录，之后游戏报"未覆盖原文件：save.dat.tmp"）；
+       要清存档请整体 `pm uninstall` 或让游戏自己管理
+
+用法：
+    python build_game.py                                  # 默认原始包 → temp 输出
+    python build_game.py --install                        # 构建后装到手机
+    python build_game.py --install --grant                # 装好并授予 MANAGE（appops allow）
+    python build_game.py --gd x.gd                        # 指定外部 gd（高级用法）
+"""
+
+import argparse
+import hashlib
+import os
+import re
+import shutil
+import struct
+import subprocess
+import sys
+import zipfile
+from pathlib import Path
+
+# ===================== 工具路径（用户约定位置） =====================
+GDRE_DIR = Path(r"D:\Personal Files\ISA\Godot提取")       # gdre_tools.exe + gdre_tools.pck 同目录
+GDRE_EXE = GDRE_DIR / "gdre_tools.exe"                    # cwd 指向 GDRE_DIR 以加载同目录 gdre_tools.pck
+JAVAC = Path(r"D:\Software\JDK\17\bin\javac.exe")
+JAVA = Path(r"D:\Software\JDK\17\bin\java.exe")
+UBER_APK_SIGNER = Path(r"D:\Personal Files\ISA\APK签名\uber-apk-signer.jar")
+KEYSTORE = Path(r"D:\Personal Files\ISA\APK签名\lingcraft.jks")
+KEYSTORE_ALIAS = "lingcraft"
+KS_PASS = "123456"                                       # 密钥库密码（用户提供，写死到脚本）
+ZIPALIGN = Path(r"D:\Personal Files\ISA\APK签名\zipalign.exe")   # build-tools 版（ZIP64 支持 >2GB）
+ADB = Path(r"D:\Software\Android\platform-tools\adb.exe")
+SCRIPT_DIR = Path(__file__).resolve().parent              # gfp 项目根
+DEFAULT_ORIG = Path(r"D:\Downloads\temp\YierPai 原始.apk")
+
+# ===================== 游戏/打包参数 =====================
+PKG_NAME = "com.yierpai.mobiletest"
+PCK_ENTRY = "assets/assets.sparsepck"                     # APK 内的 pck 条目名
+SAVE_SCRIPT_REL = "globals/local_save_manager"            # pck 内脚本相对路径（无扩展名）
+PERMISSIONS = [                                           # 追加到 Manifest 的存储权限
+    "android.permission.READ_EXTERNAL_STORAGE",
+    "android.permission.WRITE_EXTERNAL_STORAGE",
+    "android.permission.MANAGE_EXTERNAL_STORAGE",
+]
+BYTECODE_VERSION = "4.5.0-stable"                         # 原包字节码版本（commit ebc36a7）
+SAVE_ROOT = "/storage/emulated/0/YierPai/saves"             # = /sdcard/YierPai/saves
+REMOTE_TMP = "/data/local/tmp/build_game_install.apk"
+
+# ===================== Java 重打包源码（与 tools/Repack2.java 一致） =====================
+REPACK_JAVA = r'''import java.io.*;
+import java.util.*;
+import java.util.zip.*;
+
+/** 通用 APK 条目替换重打包。
+ *  用法: Repack2 <src.apk> <out.apk> [entry_name=local_file ...]
+ *  自动剔除 META-INF 旧签名；STORED 条目保留 STORED 并预设 size/crc。
+ */
+public class Repack2 {
+    public static void main(String[] args) throws Exception {
+        if (args.length < 3) {
+            System.err.println("usage: Repack2 <src.apk> <out.apk> [entry=file ...]");
+            System.exit(2);
+        }
+        String srcApk = args[0];
+        String outApk = args[1];
+
+        Map<String, File> replace = new LinkedHashMap<>();
+        for (int i = 2; i < args.length; i++) {
+            int eq = args[i].indexOf('=');
+            replace.put(args[i].substring(0, eq), new File(args[i].substring(eq + 1)));
+            System.out.println("replace: " + args[i].substring(0, eq) + " <- " + args[i].substring(eq + 1));
+        }
+
+        ZipFile zin = new ZipFile(srcApk);
+        ZipOutputStream zout = new ZipOutputStream(new FileOutputStream(outApk));
+        zout.setLevel(9);
+
+        Enumeration<? extends ZipEntry> en = zin.entries();
+        int skipped = 0, written = 0, replaced = 0;
+        while (en.hasMoreElements()) {
+            ZipEntry e = en.nextElement();
+            String name = e.getName();
+            if (name.startsWith("META-INF/") &&
+                (name.endsWith(".MF") || name.endsWith(".SF") || name.endsWith(".RSA") ||
+                 name.endsWith(".DSA") || name.endsWith(".EC"))) {
+                skipped++;
+                continue;
+            }
+
+            InputStream is;
+            ZipEntry ne = new ZipEntry(name);
+            long size, crc;
+
+            if (replace.containsKey(name)) {
+                File f = replace.get(name);
+                size = f.length();
+                CRC32 c = new CRC32();
+                InputStream cs = new FileInputStream(f);
+                byte[] cbuf = new byte[1 << 20];
+                int cn;
+                while ((cn = cs.read(cbuf)) > 0) c.update(cbuf, 0, cn);
+                cs.close();
+                crc = c.getValue();
+
+                is = new FileInputStream(f);
+                // sparsepck 等大文件必须保持 STORED 未压缩——Godot 依赖 mmap 直读
+                if (e.getMethod() == ZipEntry.STORED || size > (100L << 20)) {
+                    ne.setMethod(ZipEntry.STORED);
+                    ne.setSize(size);
+                    ne.setCompressedSize(size);
+                    ne.setCrc(crc);
+                    zout.putNextEntry(ne);
+                    copyStream(is, zout);
+                } else {
+                    ne.setMethod(ZipEntry.DEFLATED);
+                    zout.putNextEntry(ne);
+                    copyStream(is, zout);
+                }
+                replaced++;
+            } else if (e.getMethod() == ZipEntry.STORED) {
+                is = zin.getInputStream(e);
+                ne.setMethod(ZipEntry.STORED);
+                ne.setSize(e.getSize());
+                ne.setCompressedSize(e.getCompressedSize());
+                ne.setCrc(e.getCrc());
+                zout.putNextEntry(ne);
+                copyStream(is, zout);
+            } else {
+                is = zin.getInputStream(e);
+                ne.setMethod(ZipEntry.DEFLATED);
+                zout.putNextEntry(ne);
+                copyStream(is, zout);
+            }
+            zout.closeEntry();
+            if (is != null) is.close();
+            written++;
+        }
+        zin.close();
+        zout.close();
+        System.out.println("done. written=" + written + " replaced=" + replaced + " skipped_signatures=" + skipped);
+        System.out.println("output=" + outApk);
+    }
+
+    static void copyStream(InputStream in, OutputStream out) throws Exception {
+        byte[] buf = new byte[8 * 1024 * 1024];
+        int n;
+        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+    }
+}
+'''
+
+
+def run(cmd, cwd=None):
+    print("[$]", subprocess.list2cmdline(cmd), flush=True)
+    kwargs = {"check": True}
+    if cwd is not None:
+        kwargs["cwd"] = str(cwd)
+    subprocess.run(cmd, **kwargs)
+
+
+def rmtree_safe(path, label: str = ""):
+    """删目录；若被环境的批量删除保护拦截（SAFE_DELETE_BULK_CONFIRM_REQUIRED），
+    只提示不致命——否则脚本会在清理阶段异常退出、看起来像"构建失败"。"""
+    p = Path(path)
+    if not p.exists():
+        return
+    try:
+        shutil.rmtree(p)
+    except Exception as e:
+        print(f"[i] 清理 {label or p} 跳过（{type(e).__name__}）——"
+              f"目录已保留，可用 --keep-work 或手动删除")
+
+
+def md5_of(path: Path) -> str:
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+# ===================== 步骤 1：抽 pck =====================
+def extract_pck(apk_path: Path, out_pck: Path):
+    print("[i] 从 APK 抽出 pck …")
+    with zipfile.ZipFile(apk_path) as z:
+        names = z.namelist()
+        entry = PCK_ENTRY
+        if entry not in names:
+            cands = [n for n in names if n.endswith((".sparsepck", ".pck"))]
+            if not cands:
+                raise SystemExit("APK 内找不到 pck 条目（找过 *.sparsepck/*.pck）")
+            entry = cands[0]
+            print(f"[i] 自动识别 pck 条目：{entry}")
+        with z.open(entry) as src, open(out_pck, "wb") as dst:
+            shutil.copyfileobj(src, dst, length=8 * 1024 * 1024)
+    print(f"[v] 已抽出：{out_pck}（{out_pck.stat().st_size / 2**30:.2f} GB）")
+
+
+# ===================== 步骤 2：现场恢复原版脚本（默认路径） =====================
+def recover_scripts(pck: Path, out_dir: Path):
+    print("[i] gdre_tools 恢复脚本源码（--scripts-only）…")
+    run([str(GDRE_EXE), "--headless", f"--recover={pck}", "--scripts-only",
+         f"--output={out_dir}"], cwd=GDRE_DIR)
+    return out_dir
+
+
+def patch_save_root(gd_path: Path, save_root: str) -> int:
+    """在【原版脚本】上做最小改动，只动两处：
+       ① `const SAVE_ROOT: = "user://saves"` → `var SAVE_ROOT: = "user://saves"`
+          （const 不能运行时赋值，这是唯一的必要放宽；右侧表达式原样保留）
+       ② `_ready()` 开头插 2 行：android 分支把 SAVE_ROOT 指到外部目录
+       其余一字不动 —— 特别是存档事务必须保持游戏原生 `dir.rename`
+       （授权后 Godot 走直接文件 IO，rename 正常；改成 copy+remove 反而会在
+       未授权时留 .tmp 残留，见 MEMORY.md）。返回改动条数（用于自检）。
+    """
+    # 按【字节】读写：保持原文件行尾（文本模式会把 LF 转成系统 CRLF，导致 diff 全文件飘红）
+    raw = gd_path.read_bytes()
+    text = raw.decode("utf-8")
+    nl = "\r\n" if b"\r\n" in raw else "\n"
+
+    # ① const → var（只换关键字，保留原有的 ": =" 类型推断写法）
+    new_text, n1 = re.subn(r"\bconst(\s+SAVE_ROOT\s*:?\s*=)", r"var\1", text, count=1)
+    if n1 == 0:
+        raise SystemExit('找不到 `const SAVE_ROOT = "user://saves"`，脚本结构不识别：' + str(gd_path))
+
+    # ② _ready() 开头插入 android 分支
+    if 'SAVE_ROOT = "%s"' % save_root in new_text:
+        print("[i] 脚本已含目标路径覆盖，跳过插入")
+        gd_path.write_bytes(new_text.encode("utf-8"))
+        return 1
+    m = re.search(r"func\s+_ready\s*\(\)\s*->\s*void\s*:\s*\r?\n([ \t]*)", new_text)
+    if not m:
+        raise SystemExit("找不到 func _ready()，无法插入覆盖逻辑")
+    indent = m.group(1) or "\t"
+    # ⚠ 插入点必须是【函数定义行的下一行开头】，不能在“缩进之后”插 ——
+    #    否则会吃掉原有第一条语句的缩进，使 `get_tree().auto_accept_quit = false`
+    #    变成顶格（函数外），GDScript 语义错乱 → 游戏初始化异常（曾导致“点开始后
+    #    画面缩到左上角”的诡异 bug）。
+    body_start = new_text.index("\n", m.start()) + 1
+    override = nl.join([
+        f"{indent}# Android 上把存档放到免 root 可访问的共享目录",
+        f'{indent}if OS.has_feature("android"):',
+        f'{indent}\tSAVE_ROOT = "{save_root}"',
+    ]) + nl
+    new_text = new_text[:body_start] + override + new_text[body_start:]
+    gd_path.write_bytes(new_text.encode("utf-8"))
+    print(f"[v] 已在原版脚本上最小改动（const→var + _ready 覆盖 → {save_root}）")
+    return 2
+
+
+# ===================== 步骤 3：编译 =====================
+def compile_gdc(gd_path: Path, out_dir: Path) -> Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[i] 编译 .gdc（bytecode={BYTECODE_VERSION}）…")
+    run([str(GDRE_EXE), "--headless", f"--compile={gd_path}", f"--bytecode={BYTECODE_VERSION}",
+         f"--output={out_dir}"], cwd=GDRE_DIR)
+    gdc = out_dir / (gd_path.stem + ".gdc")
+    if not gdc.exists():
+        raise SystemExit(f"编译后没找到：{gdc}")
+    return gdc
+
+
+# ===================== 步骤 4：打回 pck =====================
+def patch_pck(pck: Path, patches, out_pck: Path):
+    """patches: list of (gdc_path, res_path)。--patch-file 可重复。"""
+    cmd = [str(GDRE_EXE), "--headless", f"--pck-patch={pck}"]
+    for gdc, res in patches:
+        cmd.append(f"--patch-file={gdc}={res}")
+    cmd.append(f"--output={out_pck}")
+    print("[i] 打回 pck …")
+    run(cmd, cwd=GDRE_DIR)
+    if not out_pck.exists():
+        raise SystemExit(f"pck 补丁失败，没生成：{out_pck}")
+
+
+# ===================== 步骤 5：AXML Manifest 补权限（动态索引版） =====================
+def patch_manifest_bytes(data: bytes, perms) -> bytes:
+    """往二进制 AndroidManifest.xml(AXML) 追加 uses-permission 节点。
+
+    ⚠ 动态解析字符串池索引（硬编码索引换包必错）；已声明的权限自动跳过（可重复运行）；
+    resource map 保持原样（本包 map 条目数与字符串数不符属非标结构，属性值是 STRING
+    类型不查 map，运行时按索引宽容）；仅支持 UTF-16 字符串池（本游戏如此）。
+    """
+    def u16(b, o): return struct.unpack_from("<H", b, o)[0]
+    def u32(b, o): return struct.unpack_from("<I", b, o)[0]
+    def pad4(n): return (n + 3) & ~3
+
+    assert u16(data, 0) == 0x0003, "不是 AXML"
+    sp = u16(data, 2)
+    sp_type, sp_hdr, sp_size, count, style_count, flags, strings_start, styles_start = \
+        struct.unpack_from("<HHIIIIII", data, sp)
+    assert sp_type == 0x0001 and style_count == 0
+    is_utf8 = bool(flags & 0x100)
+    assert not is_utf8, "UTF-8 字符串池未实现（本游戏为 UTF-16 池）"
+    assert sp_hdr == 28
+    base = sp + strings_start
+    offsets = [u32(data, sp + sp_hdr + 4 * i) for i in range(count)]
+
+    def read_str(off):
+        p = base + off
+        l = u16(data, p); p += 2
+        if l & 0x8000:
+            l = ((l & 0x7FFF) << 16) | u16(data, p); p += 2
+        return data[p:p + l * 2].decode("utf-16-le")
+
+    strs = [read_str(o) for o in offsets]
+
+    def find(s):
+        for i, x in enumerate(strs):
+            if x == s:
+                return i
+        return -1
+
+    idx_uses_perm = find("uses-permission")
+    idx_ns = find("http://schemas.android.com/apk/res/android")
+    idx_name = find("name")
+    assert idx_uses_perm >= 0 and idx_ns >= 0 and idx_name >= 0, "Manifest 缺少前提字符串"
+
+    to_add = [p for p in perms if find(p) < 0]
+    out = bytearray(data)
+
+    if to_add:
+        # 旧数据区实际末尾（最后一个字符串结束处，非 chunk 末尾——尾部可能有 padding）
+        last_end = 0
+        for o in offsets:
+            p = base + o
+            l = u16(data, p); q = p + 2
+            if l & 0x8000:
+                l = ((l & 0x7FFF) << 16) | u16(data, q); q += 2
+            last_end = max(last_end, q - base + l * 2 + 2)
+        # 追加权限字符串
+        blocks = []
+        running = last_end
+        for s in to_add:
+            blk = struct.pack("<H", len(s)) + s.encode("utf-16-le") + b"\x00\x00"
+            new_offsets = offsets + [running]
+            offsets = new_offsets
+            running += len(blk)
+            blocks.append(blk)
+        # 重建 string pool chunk（旧数据原样 + 新字符串，offsets 含新条目）
+        tail = data[base:base + last_end] + b"".join(blocks)
+        tail += b"\x00" * (pad4(len(tail)) - len(tail))
+        new_count = count + len(to_add)
+        new_strings_start = pad4(sp_hdr + 4 * new_count)
+        new_sp_size = new_strings_start + len(tail)
+        chunk = struct.pack("<HHIIIIII", 0x0001, sp_hdr, new_sp_size, new_count,
+                            style_count, flags, new_strings_start, styles_start)
+        chunk += b"".join(struct.pack("<I", o) for o in offsets)
+        chunk += tail
+        out[sp:sp + sp_size] = chunk          # bytearray 切片赋值自动伸缩
+        print(f"[v] Manifest 字符串池追加 {len(to_add)} 个权限：{', '.join(to_add)}")
+    else:
+        to_add = []
+        print("[i] 权限均已声明，跳过字符串追加")
+
+    # ---- resource map：保持原样（非标结构，不动最安全） ----
+    pos = sp + (u32(data, sp + 4) if not to_add else struct.unpack_from("<I", out, sp + 4)[0])
+    if u16(out, pos) == 0x0180:
+        rm_size = u32(out, pos + 4)
+        pos += rm_size
+
+    # ---- 节点流：找最后一个 uses-permission 的 END_ELEMENT ----
+    insert_at = None
+    scan = pos
+    while scan < len(out):
+        t = u16(out, scan); sz = u32(out, scan + 4)
+        if t == 0x0103 and u32(out, scan + 20) == idx_uses_perm:
+            insert_at = scan + sz
+        scan += sz
+    assert insert_at is not None, "未找到 uses-permission 节点"
+
+    def make_perm(perm_idx):
+        start = struct.pack("<HHI", 0x0102, 16, 56)
+        start += struct.pack("<II", 0, 0xFFFFFFFF)          # lineNumber / comment
+        start += struct.pack("<iI", -1, idx_uses_perm)      # attrExt: ns / name
+        start += struct.pack("<HHHHHH", 20, 20, 1, 0, 0, 0)  # attributeStart/Size/Count/id/class/style
+        start += struct.pack("<iIi", idx_ns, idx_name, perm_idx)  # attribute: ns/name/rawValue
+        start += struct.pack("<HBBI", 8, 0, 0x03, perm_idx)  # typedValue: size/res0/STRING/data
+        end = struct.pack("<HHI", 0x0103, 16, 24)
+        end += struct.pack("<II", 0, 0xFFFFFFFF)
+        end += struct.pack("<iI", -1, idx_uses_perm)
+        return start + end
+
+    # 新权限字符串索引 = 原 count 起依次排（追加在池尾）
+    insert_nodes = b"".join(make_perm(count + i) for i in range(len(to_add)))
+    out = out[:insert_at] + insert_nodes + out[insert_at:]
+    struct.pack_into("<I", out, 4, len(out))
+    print(f"[v] Manifest 节点插入完成（+{len(to_add)} uses-permission），总大小 {len(out)}B")
+    return out
+
+
+# ===================== 步骤 6：Java 重打包 =====================
+SMALI_DIR = SCRIPT_DIR / "tools" / "smali"          # baksmali/smali + 依赖 jar
+_SMALI_LIBS = ["dexlib2-2.5.2.jar", "util-2.5.2.jar", "guava.jar", "jcommander-1.82.jar"]
+BAKSMALI_CP = ";".join(str(SMALI_DIR / j) for j in
+                       ["baksmali.jar"] + _SMALI_LIBS + ["args4j-2.33.jar"])
+SMALI_CP = ";".join(str(SMALI_DIR / j) for j in
+                    ["smali.jar"] + _SMALI_LIBS + ["antlr-runtime-3.5.3.jar"])
+
+# 注入到 GodotActivity.onCreate 开头：引擎加载 3.6G pck 之前就检查权限并跳授权页，
+# 避免 GDScript 层 _ready() 申请时"游戏加载半天才弹"。
+PERM_SMALI = """    # === GFP INJECT START: 启动即引导"所有文件访问"授权 ===
+    sget v0, Landroid/os/Build$VERSION;->SDK_INT:I
+    const/16 v1, 0x1e
+    if-lt v0, v1, :gfp_perm_done
+
+    invoke-static {}, Landroid/os/Environment;->isExternalStorageManager()Z
+    move-result v0
+    if-nez v0, :gfp_perm_done
+
+    const-string v0, "GFP_PERM"
+    const-string v1, "no All-Files-Access, opening settings"
+    invoke-static {v0, v1}, Landroid/util/Log;->i(Ljava/lang/String;Ljava/lang/String;)I
+
+    new-instance v0, Landroid/content/Intent;
+    const-string v1, "android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION"
+    invoke-direct {v0, v1}, Landroid/content/Intent;-><init>(Ljava/lang/String;)V
+
+    new-instance v1, Ljava/lang/StringBuilder;
+    invoke-direct {v1}, Ljava/lang/StringBuilder;-><init>()V
+    const-string v2, "package:"
+    invoke-virtual {v1, v2}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+    invoke-virtual {p0}, Landroid/content/Context;->getPackageName()Ljava/lang/String;
+    move-result-object v2
+    invoke-virtual {v1, v2}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+    invoke-virtual {v1}, Ljava/lang/StringBuilder;->toString()Ljava/lang/String;
+    move-result-object v1
+    invoke-static {v1}, Landroid/net/Uri;->parse(Ljava/lang/String;)Landroid/net/Uri;
+    move-result-object v1
+    invoke-virtual {v0, v1}, Landroid/content/Intent;->setData(Landroid/net/Uri;)Landroid/content/Intent;
+
+    invoke-virtual {p0, v0}, Landroid/app/Activity;->startActivity(Landroid/content/Intent;)V
+
+    :gfp_perm_done
+    # === GFP INJECT END ===
+
+"""
+
+
+def patch_dex_permission(apk: Path, work: Path):
+    """往 GodotActivity.onCreate 注入权限引导；返回 (dex 条目名, 新 dex 路径) 或 None。
+
+    ⚠ 需要 tools/smali/ 下的 jar（baksmali 2.5.2 + 依赖，Maven Central 下载）。
+       GodotActivity 实现在哪个 dex 由内容自动判定（>50KB 且含类描述符），
+       不能写死 dex 序号——重打包/换包都可能变。
+    """
+    if not SMALI_DIR.exists():
+        print("[!] 未找到 tools/smali/，跳过 dex 权限引导注入")
+        return None
+
+    with zipfile.ZipFile(apk) as z:
+        dexes = [n for n in z.namelist()
+                 if n.startswith("classes") and n.endswith(".dex")]
+        target, data = None, None
+        for n in dexes:
+            d = z.read(n)
+            if b"org/godotengine/godot/GodotActivity" in d and len(d) > 50000:
+                target, data = n, d
+                break
+    if target is None:
+        print("[!] 没找到含 GodotActivity 实现的 dex，跳过注入")
+        return None
+
+    dex_in = work / ("in_" + target.replace("/", "_"))
+    dex_in.write_bytes(data)
+    smali_out = work / "smali_dex"
+    n = 1
+    while smali_out.exists():          # 不复用旧目录：删除会触发环境的批量删除保护
+        smali_out = work / f"smali_dex_{n}"
+        n += 1
+    run([str(JAVA), "-cp", BAKSMALI_CP, "org.jf.baksmali.Main",
+         "d", str(dex_in), "-o", str(smali_out)], cwd=work)
+
+    ga = smali_out / "org" / "godotengine" / "godot" / "GodotActivity.smali"
+    if not ga.exists():
+        print(f"[!] {ga} 不存在，跳过注入")
+        return None
+
+    text = ga.read_text(encoding="utf-8")
+    if "GFP INJECT START" in text:
+        print("[i] dex 已注入过权限引导")
+    else:
+        m = re.search(r"\.method protected onCreate\(Landroid/os/Bundle;\)V\n", text)
+        if not m:
+            print("[!] 找不到 onCreate(Bundle)，跳过注入")
+            return None
+        rest, head = text[m.end():], m.end()
+        lm = re.search(r"\n(?:    \.param [^\n]*\n)*    \.line ", rest)
+        if not lm:
+            print("[!] 找不到 onCreate 内的 .line 定位点，跳过注入")
+            return None
+        pos = head + lm.start() + 1
+        ga.write_text(text[:pos] + PERM_SMALI + text[pos:], encoding="utf-8")
+        print(f"[v] 已注入权限引导到 {target} 的 GodotActivity.onCreate")
+
+    dex_out = work / ("patched_" + target.replace("/", "_"))
+    run([str(JAVA), "-cp", SMALI_CP, "org.jf.smali.Main",
+         "a", str(smali_out), "-o", str(dex_out)], cwd=work)
+    return (target, dex_out)
+
+
+def repack_apk(apk: Path, replacements, out_apk: Path, work: Path):
+    java_src = work / "Repack2.java"
+    java_src.write_text(REPACK_JAVA, encoding="utf-8")
+    print("[i] 编译并运行 Java 重打包（替换条目 + 剔旧签名 + STORED 保 STORED）…")
+    run([str(JAVAC), "-encoding", "UTF-8", str(java_src)], cwd=work)
+    cmd = [str(JAVA), "-cp", str(work), "Repack2", str(apk), str(out_apk)]
+    for entry, f in replacements:
+        cmd.append(f"{entry}={f}")
+    run(cmd, cwd=work)
+    if not out_apk.exists():
+        raise SystemExit(f"重打包失败，没生成：{out_apk}")
+
+
+# ===================== 步骤 7：校验 =====================
+def verify_packed(apk: Path):
+    z = zipfile.ZipFile(apk)
+    info = z.getinfo(PCK_ENTRY)
+    if info.compress_type != zipfile.ZIP_STORED:
+        raise SystemExit(f"✗ {PCK_ENTRY} 被压缩成 DEFLATED（Godot mmap 会失效，游戏卡死 splash）")
+    if z.testzip() is not None:
+        raise SystemExit("✗ ZIP 完整性校验失败")
+    manifest = z.read("AndroidManifest.xml")
+    txt = manifest.decode("utf-16-le", errors="ignore")
+    missing = [p for p in PERMISSIONS if p not in txt]
+    if missing:
+        raise SystemExit(f"✗ Manifest 缺权限声明：{missing}")
+    print(f"[v] 校验通过：{PCK_ENTRY} STORED + zip 完整 + {len(PERMISSIONS)} 权限声明")
+
+
+# ===================== 步骤 8：签名 =====================
+def sign(apk: Path, out_dir: Path, ks_pass: str) -> Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    print("[i] 签名 + zipalign（uber-apk-signer + 外置 zipalign）…")
+    run([str(JAVA), "-jar", str(UBER_APK_SIGNER), "-a", str(apk), "-o", str(out_dir),
+         "--ks", str(KEYSTORE), "--ksAlias", KEYSTORE_ALIAS,
+         "--ksPass", ks_pass, "--ksKeyPass", ks_pass,
+         "--allowResign", "--zipAlignPath", str(ZIPALIGN)])
+    signed = out_dir / (apk.stem + "-aligned-signed.apk")
+    if not signed.exists():
+        raise SystemExit(f"签名后没找到：{signed}")
+    if signed.stat().st_size < 1 << 30:   # < 1GB 视为不完整（正常约 3.4GB）
+        raise SystemExit(f"签名产物异常偏小（{signed.stat().st_size / 2**20:.1f} MB），签名可能失败")
+    return signed
+
+
+# ===================== 步骤 9：安装（>2GB 必须 push + pm install） =====================
+def install_apk(apk: Path, serial: str, grant: bool):
+    print("[i] 安装到手机（push + pm install，禁用 adb install 流式/增量）…")
+    base = [str(ADB)] + (["-s", serial] if serial else [])
+    run(base + ["push", str(apk), REMOTE_TMP])
+    local_md5 = md5_of(apk)
+    out = subprocess.run(base + ["shell", "md5sum", REMOTE_TMP],
+                         capture_output=True, text=True).stdout
+    remote_md5 = out.split()[0] if out.split() else ""
+    if local_md5 != remote_md5:
+        raise SystemExit(f"✗ push 后 md5 不一致：local={local_md5} remote={remote_md5}")
+    print(f"[v] md5 一致：{local_md5}")
+    run(base + ["shell", "pm", "install", "-r", "-t", REMOTE_TMP])
+    if grant:
+        run(base + ["shell", "appops", "set", PKG_NAME, "MANAGE_EXTERNAL_STORAGE", "allow"])
+        run(base + ["shell", "appops", "set", "--uid", "10435",
+                    "MANAGE_EXTERNAL_STORAGE", "allow"])
+        print("[v] 已授予 MANAGE_EXTERNAL_STORAGE（appops allow）")
+    else:
+        st = subprocess.run(base + ["shell", "appops", "get", PKG_NAME,
+                                    "MANAGE_EXTERNAL_STORAGE"],
+                            capture_output=True, text=True).stdout.strip()
+        print(f"[i] MANAGE 授权状态（免授权形态保持 default 即可）：{st.splitlines()[-1] if st else st}")
+    run(base + ["shell", "rm", "-f", REMOTE_TMP])
+    print("[v] 安装完成")
+
+
+# ===================== main =====================
+def main():
+    ap = argparse.ArgumentParser(description="一键修改 YierPai.apk 存档路径并重打包签名（可安装）")
+    ap.add_argument("--orig", default=str(DEFAULT_ORIG), help="原始游戏 APK 路径（可含空格）")
+    ap.add_argument("--dir", default=r"D:\Downloads\temp", help="输出目录")
+    ap.add_argument("--file", default="YierPai_game-signed.apk", help="最终输出文件名")
+    ap.add_argument("--work", default=r"D:\Downloads\temp\bg_work",
+                    help="工作目录（必须无空格；gdre_tools 会截断含空格路径）")
+    ap.add_argument("--gd", default=None,
+                    help="可选：外部 local_save_manager.gd（默认从原包现场恢复原版再最小改动）")
+    ap.add_argument("--save-root", default=SAVE_ROOT, help="SAVE_ROOT 覆盖路径")
+    ap.add_argument("--ks-pass", default=KS_PASS, help="lingcraft.jks 密钥库密码")
+    ap.add_argument("--skip-sign", action="store_true", help="只重打包不签名")
+    ap.add_argument("--install", action="store_true", help="构建后自动装到手机")
+    ap.add_argument("--serial", default="92cbcbdb", help="adb 设备 serial")
+    ap.add_argument("--grant", action="store_true", help="安装后授予 MANAGE（默认免授权形态）")
+    ap.add_argument("--keep-work", action="store_true", help="保留工作目录（默认即保留，此参数为兼容保留）")
+    ap.add_argument("--clean-work", default=True, action="store_true",
+                    help="结束后尝试删除工作目录（⚠ 本环境的批量删除保护可能直接终止脚本）")
+    args = ap.parse_args()
+
+    apk = Path(args.orig).resolve()
+    if not apk.exists():
+        raise SystemExit(f"APK 不存在：{apk}")
+    if " " in str(Path(args.work).resolve()):
+        raise SystemExit("工作目录路径不能含空格（gdre_tools 会截断路径）")
+
+    work = Path(args.work)
+    work.mkdir(parents=True, exist_ok=True)
+    pck = work / "original.sparsepck"
+    patched_pck = work / "patched.sparsepck"
+    repacked = work / "repacked.apk"
+
+    try:
+        # 1) 抽 pck
+        extract_pck(apk, pck)
+
+        # 2) 取【原版】脚本源码：默认现场从 pck 恢复（保证改动最小、零死代码）；
+        #    --gd 仅在需要指定外部脚本时使用（高级用法）
+        if args.gd:
+            gd = work / (SAVE_SCRIPT_REL.split("/")[-1] + ".gd")
+            shutil.copy2(Path(args.gd), gd)
+            print(f"[i] 使用外部 gd：{args.gd}")
+        else:
+            rec = recover_scripts(pck, work / "recovered")
+            gd = rec / (SAVE_SCRIPT_REL + ".gd")
+            if not gd.exists():
+                raise SystemExit(f"恢复后没找到脚本：{gd}")
+        patch_save_root(gd, args.save_root)
+
+        # 3) 编译 → 打回 pck
+        save_gdc = compile_gdc(gd, work / "compiled")
+        patch_pck(pck, [(save_gdc, "res://" + SAVE_SCRIPT_REL.replace("\\", "/") + ".gdc")],
+                  patched_pck)
+
+        # 4) Manifest 补权限（从原始 APK 读 AXML）
+        with zipfile.ZipFile(apk) as z:
+            manifest_orig = z.read("AndroidManifest.xml")
+        manifest_new = patch_manifest_bytes(manifest_orig, PERMISSIONS)
+        manifest_bin = work / "patched_manifest.bin"
+        manifest_bin.write_bytes(manifest_new)
+
+        # 4.5) dex 注入：GodotActivity.onCreate 启动即引导"所有文件访问"授权（秒弹）
+        dex_pair = patch_dex_permission(apk, work)
+
+        # 5) 重打包（一次替换 pck + manifest [+ dex] 条目）
+        replacements = [(PCK_ENTRY, patched_pck),
+                        ("AndroidManifest.xml", manifest_bin)]
+        if dex_pair:
+            replacements.append(dex_pair)
+        repack_apk(apk, replacements, repacked, work)
+
+        # 6) 校验
+        verify_packed(repacked)
+
+        # 7) 签名 + 输出
+        if args.skip_sign:
+            final = repacked
+        else:
+            final = sign(repacked, work / "signed", args.ks_pass or KS_PASS)
+        out = Path(args.dir) / args.file
+        out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(final, out)
+        print(f"[v] 完成：{out}（{out.stat().st_size / 2**30:.2f} GB）")
+
+        # 8) 可选安装
+        if args.install:
+            install_apk(out, args.serial, args.grant)
+    finally:
+        # 默认保留工作目录：删除成千上万个中间文件会触发本环境的批量删除保护
+        # （表现为进程被直接终止、EXIT=1），所以清理必须是显式的。
+        if getattr(args, "clean_work", False):
+            rmtree_safe(work, "工作目录")
+            print("[i] 已尝试清理工作目录（若被保护拦截，请手动删除）")
+        else:
+            print(f"[i] 工作目录保留：{work}（--clean-work 可尝试删除）")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001
+        print(f"[x] 失败：{e}", file=sys.stderr)
+        sys.exit(1)

@@ -13,7 +13,8 @@ namespace Gfp.Mobile;
 /// 这里只挂三处生命周期回调，服务于「所有文件访问权限」的检测与引导。
 /// </summary>
 [Activity(
-    Label = "功夫派存档工具",
+    Label = "存档工具",
+    Icon = "@mipmap/ic_launcher",
     // ⚠ AvaloniaActivity 继承自 AppCompatActivity，主题必须是 Theme.AppCompat 系，
     //   用 @android:style/Theme.Material.* 会在 set_Content 时抛：
     //   IllegalStateException: You need to use a Theme.AppCompat theme (or descendant) with this activity.

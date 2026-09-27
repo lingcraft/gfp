@@ -30,7 +30,7 @@ public partial class MainView : UserControl
     // 注意：PermPanel / GrantBtn / RecheckBtn / PathText / AccBox / CharBox /
     // ReliefBtn / BackupBtn / ExportBtn / ImportBtn / BakBox / RestoreBtn / DelBakBtn /
     // StatusText / ToastBox / ToastText /
-    // ConfirmOverlay / ConfirmTitle / ConfirmMsg / ConfirmNo / ConfirmYes / IconCircle / IconGlyph
+    // ConfirmOverlay / ConfirmDialog / ConfirmTitle / ConfirmMsg / ConfirmNo / ConfirmYes / IconCircle / IconGlyph
     // 这些字段由 Avalonia.Generators.NameGenerator 依据 xaml 里的 x:Name 自动生成
     // （internal 可见性），所以这里不能再手写同名成员，否则报 CS0102。
 
@@ -89,6 +89,9 @@ public partial class MainView : UserControl
                 }
             };
 
+            // 弹窗最大宽度 = 窗口宽度的一半（用户反馈"现在的太宽了"）
+            this.SizeChanged += OnSizeChanged;
+
             RefreshByPermission();
             SelfCheck();
             Console.WriteLine("[GFP] MainView ctor done");
@@ -100,12 +103,47 @@ public partial class MainView : UserControl
         }
     }
 
+    /// <summary>
+    /// 弹窗宽度限制为窗口宽度的一半；单按钮时再刷新「确定」按钮宽度为弹窗宽度的一半。
+    /// 这样在横竖屏切换/窗口大小变化后也不会过宽或变形。
+    /// </summary>
+    private void OnSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        // ⚠ 宽度限制只作用在白色弹窗卡片（ConfirmDialog）上，外层 ConfirmOverlay
+        //   必须保持全屏半透明遮罩，不能设 MaxWidth。
+        if (this.Bounds.Width <= 0 || ConfirmDialog is null) return;
+        ConfirmDialog.MaxWidth = this.Bounds.Width * 0.65;
+
+        // 当前正在显示单按钮弹窗：刷新按钮宽度，避免旋转屏幕后变形
+        if (ConfirmOverlay is not null && ConfirmOverlay.IsVisible &&
+            ConfirmNo is not null && !ConfirmNo.IsVisible)
+            ConfirmYes!.Width = SingleButtonWidth();
+    }
+
+    /// <summary>确保白色弹窗卡片的最大宽度已按当前窗口尺寸设置。</summary>
+    private void EnsureOverlayMaxWidth()
+    {
+        if (this.Bounds.Width > 0 && ConfirmDialog is not null)
+            ConfirmDialog.MaxWidth = this.Bounds.Width * 0.65;
+    }
+
+    /// <summary>单按钮弹窗里「确定」的宽度：与双按钮中单个按钮等宽，避免单按钮显得更长。</summary>
+    private double SingleButtonWidth()
+    {
+        if (this.Bounds.Width <= 0) return double.NaN;
+        // 卡片最大宽 = 窗口 * 0.65；内部可用宽再减左右 padding(16*2=32) 与双按钮间距(5+5=10)
+        double cardInner = this.Bounds.Width * 0.65 - 32 - 10;
+        return Math.Max(0, cardInner) / 2;
+    }
+
     // ---------- 提示 / 确认 / Toast ----------
 
-    /// 状态栏留痕（底部那块浅色区域），同时也是日志
+    /// 状态栏留痕（底部那块浅色区域），同时也是日志。
+    /// ⚠ 有内容时才显示整块，避免初始状态空占一块灰底。
     private void Status(string msg)
     {
         StatusText!.Text = msg;
+        StatusPanel!.IsVisible = msg.Length > 0;
         Console.WriteLine("[GFP] " + msg.Replace('\n', ' '));
     }
 
@@ -161,10 +199,13 @@ public partial class MainView : UserControl
         SetIcon(icon);
         ConfirmTitle!.Text = title;
         ConfirmMsg!.Text = msg;
+        EnsureOverlayMaxWidth();
         ConfirmNo!.IsVisible = false;      // 隐藏「否」
         ConfirmYes!.Content = "确定";      // ⚠ 单按钮按电脑版用「确定」，不是「是」
-        // ⚠ 「是」在 Grid.Column 0，隐藏「否」后只剩它占左半边 —— 让它跨两列铺满
+        // ⚠ 单按钮时宽度对齐双按钮的单个按钮（否则单按钮会比双按钮里的按钮还长），放到右下角。
         Grid.SetColumnSpan(ConfirmYes, 2);
+        ConfirmYes!.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right;
+        ConfirmYes!.Width = SingleButtonWidth();
         ConfirmOverlay!.IsVisible = true;
         Console.WriteLine($"[GFP-ALERT] {title}: {msg.Replace('\n', ' ')}");
     }
@@ -175,9 +216,12 @@ public partial class MainView : UserControl
         SetIcon(MsgIcon.Question);
         ConfirmTitle!.Text = title;
         ConfirmMsg!.Text = msg;
+        EnsureOverlayMaxWidth();
         ConfirmNo!.IsVisible = true;       // 恢复「否」（Alert 会把它藏起来）
         ConfirmNo!.Content = "否";         // ⚠ 电脑版是「是」/「否」，不是「确定」/「取消」
         ConfirmYes!.Content = "是";
+        ConfirmYes!.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
+        ConfirmYes!.Width = double.NaN;      // 双按钮时各占一列，恢复自动宽度
         Grid.SetColumnSpan(ConfirmYes, 1); // 恢复成半宽（与「否」并排）
         ConfirmOverlay!.IsVisible = true;
     }
@@ -398,30 +442,32 @@ public partial class MainView : UserControl
 
     private void DoRelief()
     {
-        if (_cur is null) { Toast("请先选择账号。"); return; }
-        if (_curChar is null) { Toast("请先选择角色。"); return; }
+        // ⚠ 措辞对齐 PySide6 版：请先选择有效账号。 / 请选择角色。
+        if (_cur is null) { Toast("请先选择有效账号"); return; }
+        if (_curChar is null) { Toast("请选择角色"); return; }
 
         var keep = _curChar.Idx;
-        var (ok, msg, payload, version) = Workflow.ApplyRelief(_cur, _curChar);
+        var (ok, title, msg, payload, version) = Workflow.ApplyRelief(_cur, _curChar);
 
         if (ok)
         {
             _payload = payload;
             ReloadChars(keep);
-            Toast(msg);
+            // ⚠ 与 PySide6 版对齐：只有"完成"是 toast 式反馈，其余（等级过高 / 已拥有）都是弹窗。
+            if (title == "完成") Toast(msg);
+            else Alert(title, msg);
         }
         else
         {
-            // 失败/不符合条件（例如等级 > 10）都走弹窗，避免 Toast 一闪而过被忽略
-            Alert("无法减负", msg);
+            Alert(title, msg, MsgIcon.Error);
         }
     }
 
     private void DoBackup()
     {
-        if (_cur is null) { Toast("请先选择账号。"); return; }
+        if (_cur is null) { Toast("请先选择有效账号"); return; }
 
-        var (ok, msg) = Workflow.MakeBackup(_cur);
+        var (ok, title, msg) = Workflow.MakeBackup(_cur);
         if (ok)
         {
             RefreshBackups();
@@ -429,23 +475,32 @@ public partial class MainView : UserControl
         }
         else
         {
-            Alert("备份失败", msg, MsgIcon.Error);
+            Alert(title, msg, MsgIcon.Error);
         }
     }
 
     private void DoRestore()
     {
-        if (_cur is null) { Toast("请先选择账号。"); return; }
+        // ⚠ 以下前置检查的措辞对齐 PySide6 版（gfp.py::do_restore）
+        if (_cur is null) { Toast("请先选择有效账号"); return; }
+        if (_backups.Count == 0) { Toast("该账号还没有备份"); return; }
+
         int i = BakBox!.SelectedIndex;
-        if (i < 0 || i >= _backups.Count) { Toast("请先选择要恢复的备份。"); return; }
+        if (i < 0 || i >= _backups.Count) { Toast("请选择要恢复的备份"); return; }
 
         var p = _cur;
         var b = _backups[i];
+
+        if (!File.Exists(b.Path)) { Alert("错误", "备份文件不存在。", MsgIcon.Error); RefreshBackups(); return; }
+
+        // ⚠ 确认文案照抄 PySide6 版 do_restore 里那段 QMessageBox.question：
+        //   f"将恢复账号【{name}】的备份存档【{bdisp}】，是否确定？"
+        //   （Python 版把这段注释掉了、当前是直接恢复；移动端保留确认。）
         Confirm("确认恢复",
-            $"将用备份【{Backup.Fmt(b)}】\n覆盖账号【{p.Name}】的当前存档。\n\n当前存档会被替换，是否继续？",
+            $"将恢复账号【{p.Name}】的备份存档【{Backup.Fmt(b)}】，是否确定？",
             () =>
             {
-                var (ok, msg) = Workflow.Restore(p, b);
+                var (ok, title, msg) = Workflow.Restore(p, b);
                 if (ok)
                 {
                     LoadAccount();   // 存档整个换了，重新加载账号
@@ -453,23 +508,26 @@ public partial class MainView : UserControl
                 }
                 else
                 {
-                    Alert("恢复失败", msg, MsgIcon.Error);
+                    Alert(title, msg, MsgIcon.Error);
                 }
             });
     }
 
     private void DoDeleteBackup()
     {
-        if (_cur is null) { Toast("请先选择账号。"); return; }
+        // ⚠ 前置检查与确认时机全部对齐 PySide6 版（gfp.py::do_delete_backup）
+        if (_cur is null) { Toast("请先选择有效账号"); return; }
+        if (_backups.Count == 0) { Toast("该账号还没有备份"); return; }
+
         int i = BakBox!.SelectedIndex;
-        if (i < 0 || i >= _backups.Count) { Toast("请先选择要删除的备份。"); return; }
+        if (i < 0 || i >= _backups.Count) { Toast("请选择要删除的备份"); return; }
 
         var p = _cur;
         var b = _backups[i];
 
-        // ⚠ 确认时机对齐电脑版 DoDelete：
-        //   只有删【最后一个备份】才弹确认，删其它备份直接执行。
-        //   电脑版原文：if (_backups.Count == 1 && !Confirm(...)) return;
+        if (!File.Exists(b.Path)) { Alert("错误", "备份文件不存在。", MsgIcon.Error); RefreshBackups(); return; }
+
+        // ⚠ 仅当只剩最后 1 个备份时才弹窗确认，避免误删全部备份
         if (_backups.Count == 1)
         {
             Confirm("确认删除",
@@ -484,7 +542,7 @@ public partial class MainView : UserControl
     /// <summary>真正的删除动作，被 DoDeleteBackup 的两条分支共用。</summary>
     private void DeleteBackupNow(Profile p, BackupEntry b)
     {
-        var (ok, msg) = Workflow.DeleteBackup(p, b);
+        var (ok, title, msg) = Workflow.DeleteBackup(p, b);
         if (ok)
         {
             RefreshBackups();
@@ -492,16 +550,36 @@ public partial class MainView : UserControl
         }
         else
         {
-            Alert("删除失败", msg, MsgIcon.Error);
+            Alert(title, msg, MsgIcon.Error);
         }
     }
 
     private void DoExport()
     {
-        if (_cur is null) { Toast("请先选择账号。"); return; }
-        var (ok, msg) = Workflow.Export(_cur);
-        if (ok) Toast(msg);
-        else Alert("导出失败", msg, MsgIcon.Error);
+        if (_cur is null) { Toast("请先选择有效账号"); return; }
+
+        var p = _cur;
+        var (ok, msg, path, exists) = Workflow.PrepareExport(p);
+        if (!ok) { Alert("导出失败", msg, MsgIcon.Error); return; }
+
+        // ⚠ 与 PySide6 版一致：导出/导入都是弹窗（正文里带完整输出路径，Toast 一闪而过看不清）
+        if (!exists)
+        {
+            var (okE, titleE, msgE) = Workflow.Export(p, path);
+            Alert(titleE, msgE, okE ? MsgIcon.Info : MsgIcon.Error);
+            return;
+        }
+
+        // ⚠ 文案对齐 PySide6 版 do_export_save：
+        //       f"桌面已存在存档文件【{dst.name}】，是否覆盖？"
+        //   移动端没有"桌面"，换成"导出位置"（实际落点是内部存储根目录）。
+        Confirm("确认覆盖",
+            $"导出位置已存在存档文件【{Path.GetFileName(path)}】，是否覆盖？",
+            () =>
+            {
+                var (okE, titleE, msgE) = Workflow.Export(p, path);
+                Alert(titleE, msgE, okE ? MsgIcon.Info : MsgIcon.Error);
+            });
     }
 
     private async void DoImport()
@@ -533,14 +611,23 @@ public partial class MainView : UserControl
             return;
         }
 
-        if (files.Count == 0) { Toast("已取消选择。"); return; }
+        if (files.Count == 0) { Toast("已取消选择"); return; }
 
         // ⚠ SAF（系统文件管理器）返回的是 content:// URI，拿不到真实文件路径，
         //   而 Archive.* 全都要路径，所以先复制成临时文件再走原流程。
+        // ⚠⚠ 临时文件名必须保留原始 zip 文件名：手机版导出的 zip 没有 profile.cfg、
+        //   也没有目录前缀，Analyze 靠 zip 文件名（=账号名）推导 encryption_id；
+        //   之前固定用 "gfp_import_时间戳.zip" ⇒ name 变成时间戳 ⇒ 解密必失败
+        //   （"导出的存档再导入失败"就是这个根因）。
         string tmp;
         try
         {
-            tmp = Path.Combine(Path.GetTempPath(), "gfp_import_" + Backup.NowStamp() + ".zip");
+            var stem = Path.GetFileNameWithoutExtension(files[0].Name);
+            if (string.IsNullOrWhiteSpace(stem)) stem = "gfp_import_" + Backup.NowStamp();
+            var sbName = new StringBuilder();
+            foreach (var ch in stem)
+                sbName.Append(Array.IndexOf(Path.GetInvalidFileNameChars(), ch) >= 0 ? '_' : ch);
+            tmp = Path.Combine(Path.GetTempPath(), sbName.ToString() + ".zip");
             await using (var src = await files[0].OpenReadAsync())
             await using (var dst = File.Create(tmp))
                 await src.CopyToAsync(dst);
@@ -551,7 +638,7 @@ public partial class MainView : UserControl
             return;
         }
 
-        var (ok, msg, plan) = Workflow.Analyze(tmp);
+        var (ok, msg, plan) = Workflow.Analyze(tmp, Path.GetFileNameWithoutExtension(files[0].Name));
         if (!ok)
         {
             try { File.Delete(tmp); } catch { }
@@ -560,23 +647,18 @@ public partial class MainView : UserControl
         }
 
         _pendingZip = tmp;
-        var display = files[0].Name;
 
         // 组装确认文案：电脑版存档要明确告诉用户会做哪些兼容转换
         var sb = new StringBuilder();
-        sb.AppendLine($"压缩包：{display}");
-        sb.AppendLine();
         sb.AppendLine(plan.TargetExists
-            ? $"将【覆盖】已有账号【{plan.Name}】的存档（覆盖前会自动备份一次）。"
-            : $"将新建账号【{plan.Name}】。");
+            ? $"将覆盖账号【{plan.Name}】的当前存档（覆盖前会自动备份一次），是否确定？"
+            : $"将新建账号【{plan.Name}】，是否确定？");
         if (plan.Origin == Workflow.SaveOrigin.Desktop)
         {
             sb.AppendLine();
             sb.AppendLine("⚠ 检测到这是电脑版存档，导入时会自动做兼容处理：");
             foreach (var c in plan.Conversions) sb.AppendLine("   · " + c);
         }
-        sb.AppendLine();
-        sb.Append("是否继续？");
 
         Confirm("确认导入", sb.ToString(), () =>
         {
@@ -585,16 +667,17 @@ public partial class MainView : UserControl
             if (zip is null) { Status("导入失败：临时文件已丢失。"); return; }
 
             plan.ZipPath = zip;
-            var (ok2, msg2) = Workflow.Import(plan);
+            var (ok2, title2, msg2) = Workflow.Import(plan);
             try { File.Delete(zip); } catch { }
             if (ok2)
             {
                 LoadProfiles(plan.Name);
-                Toast(msg2);
+                // ⚠ 导入说明里含电脑版兼容转换清单，用弹窗才能看全
+                Alert(title2, msg2, MsgIcon.Info);
             }
             else
             {
-                Alert("导入失败", msg2, MsgIcon.Error);
+                Alert(title2, msg2, MsgIcon.Error);
             }
         });
     }
