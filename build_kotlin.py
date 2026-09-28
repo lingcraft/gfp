@@ -14,7 +14,6 @@ args = parser.parse_args()
 
 BASE_DIR = Path(__file__).resolve().parent
 GRADLE = r"D:\Software\Gradle\bin\gradle.bat"
-
 cmd = [GRADLE, "-p", str(BASE_DIR / "kotlin"), "assembleRelease", "--console=plain"]
 print(f"[$] {" ".join(cmd)}", flush=True)
 run(cmd, check=True)
