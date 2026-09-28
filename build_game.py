@@ -22,10 +22,15 @@
        （未授权）即免授权可写 Android/media；零声明走 MediaStore 通道报"错误码 1"
   5.5. **dex 注入**：`GodotActivity.onCreate` 开头插"所有文件访问"权限检查 → 启动即秒弹
      系统授权页（在引擎加载 3.6G pck **之前**，比 GDScript `_ready` 快 6 倍以上）
-  6. Java `ZipOutputStream` 一次替换 sparsepck + Manifest + dex 三个条目
-     ⚠ Python zipfile 写 >2GB STORED 会产出非法 ZIP，必须 Java；
+  6. **纯 Python `zipfile`** 一次替换 sparsepck + Manifest + dex 三个条目（2026-09-28 由 Java 改造）
+     ⚠ **STORED 条目必须 `force_zip64=True`**：否则 Python 写完才发现 >2GB、无法回填 header →
+       `RuntimeError: File size too large, try using force_zip64`，或产出 LFH size=0xFFFFFFFF
+       的坏包（曾被 apksig 判 `LFH data ... overlaps with Central Directory` 而拒签 ——
+       旧版因此改用 Java `ZipOutputStream`，其实 Python 也行**而且更快**：实测重打包 3652MB
+       的 APK **Python 5.2s vs Java 8.1s**，两者产物均通过 Java `ZipFile` 校验）
      ⚠ sparsepck 必须 STORED（DEFLATED → Godot 无法 mmap → 卡死 splash 假死）；
-     ⚠ 必须剔除 META-INF/*.MF|.SF|.RSA；javac 含中文必须 -encoding UTF-8
+     ⚠ 必须剔除 META-INF/*.MF|.SF|.RSA（旧签名，新签名由 uber-apk-signer 生成）；
+     ⚠ 条目顺序 / 压缩方式 / 时间戳 / 属性沿用原 APK
   7. uber-apk-signer 签名 + 外置 zipalign 对齐（内置 32 位打不开 >2GB）
   8. 可选 --install：adb push + `pm install`（>2GB 禁用 adb install 流式/增量）
      ⚠ 免授权形态安装后**不要用 `adb shell rm` 删 Android/media 下的存档文件**
@@ -51,135 +56,39 @@ import sys
 import zipfile
 from pathlib import Path
 
+# ⚠ **Android 的 zipalign / libziparchive 不支持 ZIP64**（2026-09-28 实测）：
+#    3.4GB 的 sparsepck 若按 ZIP64 写（LFH size=0xFFFFFFFF + ZIP64 extra），
+#    zipalign 报 `Unable to open ... for verification`、apksig 也会读不出条目。
+#    Python 默认 `zipfile.ZIP64_LIMIT` 只有 2GB，超过就切 ZIP64 ⇒ 这里提高到 ZIP32 的
+#    上限 4GB-1，使 <4GB 的条目写成普通 32 位 size 字段（与 Java ZipOutputStream 行为一致，
+#    实测 zipalign / apksig 均接受）。⚠ 单个条目 >4GB 时仍会自动走 ZIP64。
+zipfile.ZIP64_LIMIT = 0xFFFFFFFF
+
 # ===================== 工具路径（用户约定位置） =====================
-GDRE_DIR = Path(r"D:\Personal Files\ISA\Godot提取")       # gdre_tools.exe + gdre_tools.pck 同目录
+GDRE_DIR = Path(r"D:\Personal Files\Reverse\Godot提取")       # gdre_tools.exe + gdre_tools.pck 同目录
 GDRE_EXE = GDRE_DIR / "gdre_tools.exe"                    # cwd 指向 GDRE_DIR 以加载同目录 gdre_tools.pck
-JAVAC = Path(r"D:\Software\JDK\17\bin\javac.exe")
 JAVA = Path(r"D:\Software\JDK\17\bin\java.exe")
-UBER_APK_SIGNER = Path(r"D:\Personal Files\ISA\APK签名\uber-apk-signer.jar")
-KEYSTORE = Path(r"D:\Personal Files\ISA\APK签名\lingcraft.jks")
+UBER_APK_SIGNER = Path(r"D:\Personal Files\Reverse\APK签名\uber-apk-signer.jar")
+KEYSTORE = Path(r"D:\Personal Files\Reverse\APK签名\lingcraft.jks")
 KEYSTORE_ALIAS = "lingcraft"
 KS_PASS = "123456"                                       # 密钥库密码（用户提供，写死到脚本）
-ZIPALIGN = Path(r"D:\Personal Files\ISA\APK签名\zipalign.exe")   # build-tools 版（ZIP64 支持 >2GB）
+ZIPALIGN = Path(r"D:\Personal Files\Reverse\APK签名\zipalign.exe")   # build-tools 版（ZIP64 支持 >2GB）
 ADB = Path(r"D:\Software\Android\platform-tools\adb.exe")
 SCRIPT_DIR = Path(__file__).resolve().parent              # gfp 项目根
 DEFAULT_ORIG = Path(r"D:\Downloads\temp\YierPai 原始.apk")
 
 # ===================== 游戏/打包参数 =====================
 PKG_NAME = "com.yierpai.mobiletest"
-PCK_ENTRY = "assets/assets.sparsepck"                     # APK 内的 pck 条目名
-SAVE_SCRIPT_REL = "globals/local_save_manager"            # pck 内脚本相对路径（无扩展名）
-PERMISSIONS = [                                           # 追加到 Manifest 的存储权限
+PCK_ENTRY = "assets/assets.sparsepck"  # APK 内的 pck 条目名
+SAVE_SCRIPT_REL = "globals/local_save_manager"  # pck 内脚本相对路径（无扩展名）
+PERMISSIONS = [  # 追加到 Manifest 的存储权限
     "android.permission.READ_EXTERNAL_STORAGE",
     "android.permission.WRITE_EXTERNAL_STORAGE",
     "android.permission.MANAGE_EXTERNAL_STORAGE",
 ]
-BYTECODE_VERSION = "4.5.0-stable"                         # 原包字节码版本（commit ebc36a7）
-SAVE_ROOT = "/storage/emulated/0/YierPai/saves"             # = /sdcard/YierPai/saves
+BYTECODE_VERSION = "4.5.0-stable"  # 原包字节码版本（commit ebc36a7）
+SAVE_ROOT = "/storage/emulated/0/YierPai/saves"  # = /sdcard/YierPai/saves
 REMOTE_TMP = "/data/local/tmp/build_game_install.apk"
-
-# ===================== Java 重打包源码（与 tools/Repack2.java 一致） =====================
-REPACK_JAVA = r'''import java.io.*;
-import java.util.*;
-import java.util.zip.*;
-
-/** 通用 APK 条目替换重打包。
- *  用法: Repack2 <src.apk> <out.apk> [entry_name=local_file ...]
- *  自动剔除 META-INF 旧签名；STORED 条目保留 STORED 并预设 size/crc。
- */
-public class Repack2 {
-    public static void main(String[] args) throws Exception {
-        if (args.length < 3) {
-            System.err.println("usage: Repack2 <src.apk> <out.apk> [entry=file ...]");
-            System.exit(2);
-        }
-        String srcApk = args[0];
-        String outApk = args[1];
-
-        Map<String, File> replace = new LinkedHashMap<>();
-        for (int i = 2; i < args.length; i++) {
-            int eq = args[i].indexOf('=');
-            replace.put(args[i].substring(0, eq), new File(args[i].substring(eq + 1)));
-            System.out.println("replace: " + args[i].substring(0, eq) + " <- " + args[i].substring(eq + 1));
-        }
-
-        ZipFile zin = new ZipFile(srcApk);
-        ZipOutputStream zout = new ZipOutputStream(new FileOutputStream(outApk));
-        zout.setLevel(9);
-
-        Enumeration<? extends ZipEntry> en = zin.entries();
-        int skipped = 0, written = 0, replaced = 0;
-        while (en.hasMoreElements()) {
-            ZipEntry e = en.nextElement();
-            String name = e.getName();
-            if (name.startsWith("META-INF/") &&
-                (name.endsWith(".MF") || name.endsWith(".SF") || name.endsWith(".RSA") ||
-                 name.endsWith(".DSA") || name.endsWith(".EC"))) {
-                skipped++;
-                continue;
-            }
-
-            InputStream is;
-            ZipEntry ne = new ZipEntry(name);
-            long size, crc;
-
-            if (replace.containsKey(name)) {
-                File f = replace.get(name);
-                size = f.length();
-                CRC32 c = new CRC32();
-                InputStream cs = new FileInputStream(f);
-                byte[] cbuf = new byte[1 << 20];
-                int cn;
-                while ((cn = cs.read(cbuf)) > 0) c.update(cbuf, 0, cn);
-                cs.close();
-                crc = c.getValue();
-
-                is = new FileInputStream(f);
-                // sparsepck 等大文件必须保持 STORED 未压缩——Godot 依赖 mmap 直读
-                if (e.getMethod() == ZipEntry.STORED || size > (100L << 20)) {
-                    ne.setMethod(ZipEntry.STORED);
-                    ne.setSize(size);
-                    ne.setCompressedSize(size);
-                    ne.setCrc(crc);
-                    zout.putNextEntry(ne);
-                    copyStream(is, zout);
-                } else {
-                    ne.setMethod(ZipEntry.DEFLATED);
-                    zout.putNextEntry(ne);
-                    copyStream(is, zout);
-                }
-                replaced++;
-            } else if (e.getMethod() == ZipEntry.STORED) {
-                is = zin.getInputStream(e);
-                ne.setMethod(ZipEntry.STORED);
-                ne.setSize(e.getSize());
-                ne.setCompressedSize(e.getCompressedSize());
-                ne.setCrc(e.getCrc());
-                zout.putNextEntry(ne);
-                copyStream(is, zout);
-            } else {
-                is = zin.getInputStream(e);
-                ne.setMethod(ZipEntry.DEFLATED);
-                zout.putNextEntry(ne);
-                copyStream(is, zout);
-            }
-            zout.closeEntry();
-            if (is != null) is.close();
-            written++;
-        }
-        zin.close();
-        zout.close();
-        System.out.println("done. written=" + written + " replaced=" + replaced + " skipped_signatures=" + skipped);
-        System.out.println("output=" + outApk);
-    }
-
-    static void copyStream(InputStream in, OutputStream out) throws Exception {
-        byte[] buf = new byte[8 * 1024 * 1024];
-        int n;
-        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-    }
-}
-'''
 
 
 def run(cmd, cwd=None):
@@ -415,12 +324,15 @@ def patch_manifest_bytes(data: bytes, perms) -> bytes:
 
 
 # ===================== 步骤 6：Java 重打包 =====================
-SMALI_DIR = SCRIPT_DIR / "tools" / "smali"          # baksmali/smali + 依赖 jar
-_SMALI_LIBS = ["dexlib2-2.5.2.jar", "util-2.5.2.jar", "guava.jar", "jcommander-1.82.jar"]
-BAKSMALI_CP = ";".join(str(SMALI_DIR / j) for j in
-                       ["baksmali.jar"] + _SMALI_LIBS + ["args4j-2.33.jar"])
-SMALI_CP = ";".join(str(SMALI_DIR / j) for j in
-                    ["smali.jar"] + _SMALI_LIBS + ["antlr-runtime-3.5.3.jar"])
+SMALI_DIR = Path(r"D:\Personal Files\Reverse\APK修改")   # baksmali/smali + 依赖 jar
+# 2.5.2 的依赖（2026-09-28 实测确认）：
+#   baksmali.jar  → dexlib2 / util / guava / jcommander（22 个类引用 jcommander）
+#   smali.jar     → 同上 + antlr-runtime（140 个类引用，smali 语法解析）
+#   ⚠ args4j **不需要**：smali 1.x/早期 2.x 用它解析命令行，2.5.2 已改用 jcommander
+#     （两个 jar 里引用 org/kohsuke/args4j 的类数 = 0；去掉后反编译+回编译实测均正常）
+SMALI_LIBS = ["dexlib2-2.5.2.jar", "util-2.5.2.jar", "guava.jar", "jcommander-1.82.jar"]
+BAKSMALI_CP = ";".join(str(SMALI_DIR / j) for j in ["baksmali.jar"] + SMALI_LIBS)
+SMALI_CP = ";".join(str(SMALI_DIR / j) for j in ["smali.jar"] + SMALI_LIBS + ["antlr-runtime-3.5.3.jar"])
 
 # 注入到 GodotActivity.onCreate 开头：引擎加载 3.6G pck 之前就检查权限并跳授权页，
 # 避免 GDScript 层 _ready() 申请时"游戏加载半天才弹"。
@@ -465,12 +377,13 @@ PERM_SMALI = """    # === GFP INJECT START: 启动即引导"所有文件访问"�
 def patch_dex_permission(apk: Path, work: Path):
     """往 GodotActivity.onCreate 注入权限引导；返回 (dex 条目名, 新 dex 路径) 或 None。
 
-    ⚠ 需要 tools/smali/ 下的 jar（baksmali 2.5.2 + 依赖，Maven Central 下载）。
+    ⚠ 需要 `D:\\Personal Files\\Reverse\\APK修改\\` 下的 jar（baksmali/smali 2.5.2 + 依赖，
+       Maven Central 下载；2026-09-28 从 gfp/tools/smali/ 移到此处以集中管理工具链）。
        GodotActivity 实现在哪个 dex 由内容自动判定（>50KB 且含类描述符），
        不能写死 dex 序号——重打包/换包都可能变。
     """
     if not SMALI_DIR.exists():
-        print("[!] 未找到 tools/smali/，跳过 dex 权限引导注入")
+        print(f"[!] 未找到 {SMALI_DIR}，跳过 dex 权限引导注入")
         return None
 
     with zipfile.ZipFile(apk) as z:
@@ -525,16 +438,69 @@ def patch_dex_permission(apk: Path, work: Path):
 
 
 def repack_apk(apk: Path, replacements, out_apk: Path, work: Path):
-    java_src = work / "Repack2.java"
-    java_src.write_text(REPACK_JAVA, encoding="utf-8")
-    print("[i] 编译并运行 Java 重打包（替换条目 + 剔旧签名 + STORED 保 STORED）…")
-    run([str(JAVAC), "-encoding", "UTF-8", str(java_src)], cwd=work)
-    cmd = [str(JAVA), "-cp", str(work), "Repack2", str(apk), str(out_apk)]
-    for entry, f in replacements:
-        cmd.append(f"{entry}={f}")
-    run(cmd, cwd=work)
+    """纯 Python 重打包：逐条复制 + 替换指定条目 + 剔除 META-INF 旧签名。
+
+    ⚠ **STORED 条目必须 `force_zip64=True`**（`zout.open(zi, "w", force_zip64=True)`）：
+       否则 Python 写完才发现 >2GB、无法回填 header → `RuntimeError: File size too large`，
+       或产出 LFH size=0xFFFFFFFF 的坏包（曾被 apksig 判
+       `LFH data ... overlaps with Central Directory` 而拒签）。
+    ⚠ sparsepck 必须保持 STORED：DEFLATED 会让 Godot 无法 mmap → 卡死 splash 假死。
+    条目顺序 / 压缩方式 / 时间戳 / 属性均沿用原 APK。
+
+    2026-09-28 实测：本实现重打包 3652MB 的 APK 仅 **5.2s**（Java ZipOutputStream 版 8.1s），
+    且省掉 javac 依赖；产物经 Java `ZipFile` 校验合法（size/magic 正确）。
+    """
+    ZIP64_LIMIT = zipfile.ZIP64_LIMIT    # 模块级已提到 4GB（ZIP32 上限），见文件头说明
+    replace = {name: Path(path) for name, path in replacements}
+    missing = [n for n in replace if not replace[n].exists()]
+    if missing:
+        raise SystemExit(f"待替换文件不存在：{missing}")
+    if out_apk.exists():
+        out_apk.unlink()
+
+    n_keep = n_drop = n_rep = 0
+    with zipfile.ZipFile(apk) as zin, \
+            zipfile.ZipFile(out_apk, "w", zipfile.ZIP_STORED, allowZip64=True) as zout:
+        for info in zin.infolist():
+            name = info.filename
+            if name.startswith("META-INF/") and name.upper().endswith(
+                    (".MF", ".SF", ".RSA", ".DSA", ".EC")):
+                n_drop += 1                      # 旧签名必须剔除
+                continue
+
+            method = info.compress_type
+            if name in replace:
+                src_path = replace[name]
+                plain_size = src_path.stat().st_size
+                src = open(src_path, "rb")
+                if plain_size > (100 << 20):
+                    method = zipfile.ZIP_STORED  # 大文件强制 STORED（Godot 靠 mmap 直读）
+                n_rep += 1
+            else:
+                plain_size = info.file_size
+                src = zin.open(info)
+                n_keep += 1
+
+            try:
+                zi = zipfile.ZipInfo(name, date_time=info.date_time)
+                zi.compress_type = method
+                zi.external_attr = info.external_attr
+                zi.internal_attr = info.internal_attr
+                zi.create_system = info.create_system
+                # ⚠ **只对确实需要 ZIP64 的条目**传 force_zip64：
+                #    若给所有条目都加（LFH size 写成 0xFFFFFFFF + ZIP64 extra），
+                #    apksig 会读不出 AndroidManifest.xml（报 "Failed to read
+                #    AndroidManifest.xml"，2026-09-28 实测踩到）。
+                #    需要 ZIP64 的条件：未压缩大小 或 当前写入偏移 ≥ 2^31-1。
+                need_zip64 = plain_size > ZIP64_LIMIT or zout.fp.tell() > ZIP64_LIMIT
+                with zout.open(zi, "w", force_zip64=need_zip64) as dst:
+                    shutil.copyfileobj(src, dst, 1 << 22)
+            finally:
+                src.close()
+
     if not out_apk.exists():
         raise SystemExit(f"重打包失败，没生成：{out_apk}")
+    print(f"[v] Python 重打包完成：保留 {n_keep} / 替换 {n_rep} / 剔除旧签名 {n_drop}")
 
 
 # ===================== 步骤 7：校验 =====================
