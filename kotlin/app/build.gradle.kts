@@ -17,7 +17,9 @@ android {
 
     defaultConfig {
         applicationId = "com.yierpai.savetool"
-        minSdk = 24
+        // ⚠ minSdk 从 24 提到 26（Android 8.0）：导入 7z/rar 用的 commons-compress / commons-io /
+        //   junrar 都引用 `java.nio.file`（API 26 才有）。其余功能不受影响。
+        minSdk = 26
         targetSdk = 36
         versionCode = versionCodeValue
         versionName = versionNameValue
@@ -81,6 +83,20 @@ dependencies {
     implementation(platform("androidx.compose:compose-bom:2026.09.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
+    // MD3 图标（扩展集）。⚠ 该库已被官方冻结在 1.7.8（BOM 里也是这个版本），
+    //   参考实现 InstallerX-Revived 同样用 1.7.8；release 走 R8 只保留用到的图标。
+    implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.core:core-ktx:1.19.1")
+
+    // ---- 压缩包**读取**支持（导入用；备份/导出只产出 zip，不需要它们）----
+    // zip  → JDK 自带 `java.util.zip`
+    // 7z   → commons-compress 的 SevenZFile（会连带引入 commons-io）
+    // xz   → commons-compress 用来解 7z 的 LZMA/LZMA2（可选依赖，但缺了多数 7z 打不开）
+    // rar  → junrar（纯 JVM，RAR4/RAR5 都支持）；它 runtime 依赖 slf4j-api，补 slf4j-nop 静音告警
+    // ⚠ 这几个库都用到 `java.nio.file` ⇒ minSdk 必须 ≥ 26
+    implementation("org.apache.commons:commons-compress:1.28.0")
+    implementation("org.tukaani:xz:1.12")
+    implementation("com.github.junrar:junrar:8.1.1")
+    runtimeOnly("org.slf4j:slf4j-nop:2.0.17")
 }

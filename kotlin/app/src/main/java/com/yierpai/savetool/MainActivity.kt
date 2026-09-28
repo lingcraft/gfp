@@ -3,6 +3,7 @@ package com.yierpai.savetool
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import com.yierpai.savetool.core.AppCtx
 import com.yierpai.savetool.core.Save
 import com.yierpai.savetool.ui.MainScreen
@@ -11,6 +12,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Android 15+ 强制 edge-to-edge（Android 16 对 targetSdk 36 连 opt-out 都忽略）：
+        // 显式开启并交给 Scaffold 的 innerPadding 处理系统栏内边距，避免内容被状态栏/导航栏压住。
+        enableEdgeToEdge()
 
         // 供 Core 层读取装备库 assets / 临时目录（避免 Core 依赖 Context）
         AppCtx.assets = assets

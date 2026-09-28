@@ -18,7 +18,7 @@ if kill.returncode == 0:
 
 BASE_DIR = Path(__file__).resolve().parent
 cmd = ["dotnet", "build", str(BASE_DIR / "wpf" / "gfp.csproj"), "-c", "Release", f"-p:Version={version}"]
-print(f"[$] {" ".join(cmd)}")
+print(f"[$] {" ".join(cmd)}", flush=True)
 run(cmd, check=True)
 
 target = Path(args.dir) / args.file

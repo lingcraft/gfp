@@ -25,6 +25,8 @@ enum class SaveOrigin { Mobile, Desktop }
 
 class ImportPlan {
     var zipPath: String = ""
+    /** 源压缩包格式（zip / 7z / rar）——导入时要按它选解压器 */
+    var kind: Kind = Kind.Zip
     var name: String = ""
     var prefix: String = ""
     var targetExists: Boolean = false
@@ -164,9 +166,13 @@ object Workflow {
         plan.zipPath = zipPath
 
         if (!File(zipPath).exists()) return AnalyzeResult(false, "找不到压缩包：$zipPath", plan)
-        if (Archive.kindOf(zipPath) != Kind.Zip) {
-            return AnalyzeResult(false, "移动端只支持 zip 格式，7z / rar 请先在电脑上转成 zip。", plan)
-        }
+        val kind = Archive.kindOf(zipPath)
+            ?: return AnalyzeResult(
+                false,
+                "不支持的压缩格式：${File(zipPath).name}\n（仅支持 zip / 7z / rar）",
+                plan,
+            )
+        plan.kind = kind
 
         val names = try {
             Archive.listNames(zipPath)
@@ -187,7 +193,7 @@ object Workflow {
 
         var tmp: String? = null
         try {
-            tmp = Archive.extractAllToTemp(zipPath, Kind.Zip)
+            tmp = Archive.extractAllToTemp(zipPath, kind)
             var dir = if (prefix.isNotEmpty()) "$tmp/${prefix.trimEnd('/')}" else tmp
 
             var savePath = "$dir/save.dat"
@@ -276,7 +282,7 @@ object Workflow {
                 Archive.zipDir(target, "$bdir/${Backup.nowStamp()}.zip")
             }
 
-            tmp = Archive.extractAllToTemp(plan.zipPath, Kind.Zip)
+            tmp = Archive.extractAllToTemp(plan.zipPath, plan.kind)
             File(target).mkdirs()
             Archive.copyPrefix(tmp, target, plan.prefix)
 
