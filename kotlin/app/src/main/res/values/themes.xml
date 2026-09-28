@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 界面完全由 Compose Material 3 绘制，这里只提供一个无 ActionBar 的框架主题底座。 -->
+    <style name="Theme.GfpSaveTool" parent="@android:style/Theme.Material.Light.NoActionBar" />
+</resources>

@@ -1,11 +1,21 @@
-.idea
-.codebuddy
-.vs
-bin
-obj
-test*
-*.log
-*.json
-*.png
-*.apk
+# ==================== 全仓库忽略规则 ====================
+
+# ---------- IDE / 编辑器 ----------
+.idea/
+.codebuddy/
+.vs/
+
+# ---------- 编译输出 ----------
+bin/
+obj/
+build/
+.gradle/
+.kotlin/
+
+# ---------- 杂项 ----------
+/test*
+/*.log
+/*.json
+/*.png
 *.user
+local.properties

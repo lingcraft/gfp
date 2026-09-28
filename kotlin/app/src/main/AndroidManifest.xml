@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 读游戏存档所在的外部公共目录 /storage/emulated/0/YierPai/saves。
+         Android 11+ 上 READ/WRITE_EXTERNAL_STORAGE 对"非媒体文件"已失效，
+         真正起作用的是 MANAGE_EXTERNAL_STORAGE（"所有文件访问权限"，系统不会弹窗，
+         必须由 App 自己给入口引导用户去设置里开）；下面两条兼容 Android 10 及以下。 -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="存档工具"
+        android:supportsRtl="false"
+        android:theme="@style/Theme.GfpSaveTool">
+
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|smallestScreenSize|density"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>
