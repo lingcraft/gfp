@@ -21,7 +21,7 @@ from Crypto.Cipher import AES
 
 KEY = bytes.fromhex("D9073F3209116603A0024DEA3FC369B6EDFBAC458C262E7B43A94A7EA36F7759")
 GDRE = r"D:\Personal Files\Reverse\Godot提取\gdre_tools.exe"
-EXE = r"D:\Personal Files\Desktop\怀旧服.exe"
+EXE = r"D:\Software\功夫派\YierPai.exe"
 OUT = r"D:\Downloads\temp\GDRE\GFP_raw"
 RECOVERED = r"D:\Downloads\temp\GDRE\GFP"
 
