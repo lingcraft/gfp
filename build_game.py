@@ -38,7 +38,7 @@
        要清存档请整体 `pm uninstall` 或让游戏自己管理
 
 用法：
-    python build_game.py                                  # 默认原始包 → temp 输出（结束自动清理工作目录）
+    python build_game.py                                  # 默认原始包 → temp 输出（结束清理工作目录 + 旧安卓 pck 临时目录）
     python build_game.py --install                        # 构建后装到手机
     python build_game.py --install --grant                # 装好并授予 MANAGE（appops allow）
     python build_game.py --keep-work                      # 保留工作目录（默认会清理）
@@ -65,7 +65,7 @@ from pathlib import Path
 zipfile.ZIP64_LIMIT = 0xFFFFFFFF
 
 # ===================== 工具路径（用户约定位置） =====================
-GDRE_DIR = Path(r"D:\Personal Files\Reverse\Godot提取")       # gdre_tools.exe + gdre_tools.pck 同目录
+GDRE_DIR = Path(r"D:\Personal Files\Reverse\Godot")          # gdre_tools.exe + gdre_tools.pck 同目录
 GDRE_EXE = GDRE_DIR / "gdre_tools.exe"                    # cwd 指向 GDRE_DIR 以加载同目录 gdre_tools.pck
 JAVA = Path(r"D:\Software\JDK\17\bin\java.exe")
 UBER_APK_SIGNER = Path(r"D:\Personal Files\Reverse\APK签名\uber-apk-signer.jar")
@@ -75,7 +75,8 @@ KS_PASS = "123456"                                       # 密钥库密码（用
 ZIPALIGN = Path(r"D:\Personal Files\Reverse\APK签名\zipalign.exe")   # build-tools 版（ZIP64 支持 >2GB）
 ADB = Path(r"D:\Software\Android\platform-tools\adb.exe")
 SCRIPT_DIR = Path(__file__).resolve().parent              # gfp 项目根
-DEFAULT_ORIG = Path(r"D:\Downloads\temp\GDRE\YierPai.apk")
+DEFAULT_ORIG = Path(r"D:\Software\功夫派\YierPai.apk")
+ANDROID_RAW_DIR = Path(r"D:\Downloads\temp\GDRE\GFP_Android_raw")
 
 # ===================== 游戏/打包参数 =====================
 PKG_NAME = "com.yierpai.mobiletest"
@@ -579,7 +580,7 @@ def main():
     ap.add_argument("--serial", default="92cbcbdb", help="adb 设备 serial")
     ap.add_argument("--grant", action="store_true", help="安装后授予 MANAGE（默认免授权形态）")
     ap.add_argument("--clean-work", default=True, action="store_true",
-                    help="结束后清理工作目录（默认开启；用 --keep-work 保留中间产物）")
+                    help="结束后清理工作目录与安卓 pck 临时目录（默认开启；用 --keep-work 保留中间产物）")
     ap.add_argument("--keep-work", action="store_true", help="保留工作目录（默认会清理）")
     args = ap.parse_args()
 
@@ -656,7 +657,8 @@ def main():
         # 只提示不影响已经产出的 APK。
         if args.clean_work and not args.keep_work:
             rmtree_safe(work, "工作目录")
-            print("[i] 已清理工作目录")
+            rmtree_safe(ANDROID_RAW_DIR, "安卓 pck 临时目录")
+            print(f"[i] 已清理工作目录与安卓 pck 临时目录（{ANDROID_RAW_DIR}）")
         else:
             print(f"[i] 工作目录保留：{work}")
 
