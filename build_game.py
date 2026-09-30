@@ -567,9 +567,9 @@ def install_apk(apk: Path, serial: str, grant: bool):
 def main():
     ap = argparse.ArgumentParser(description="一键修改 YierPai.apk 存档路径并重打包签名（可安装）")
     ap.add_argument("--orig", default=str(DEFAULT_ORIG), help="原始游戏 APK 路径（可含空格）")
-    ap.add_argument("--dir", default=r"D:\Downloads\temp", help="输出目录")
-    ap.add_argument("--file", default="YierPai_game-signed.apk", help="最终输出文件名")
-    ap.add_argument("--work", default=r"D:\Downloads\temp\bg_work",
+    ap.add_argument("--dir", default="D:\\Downloads", help="输出目录")
+    ap.add_argument("--name", default="YierPai", help="输出文件名")
+    ap.add_argument("--work", default="D:\\Downloads\\temp\\bg_work",
                     help="工作目录（必须无空格；gdre_tools 会截断含空格路径）")
     ap.add_argument("--gd", default=None,
                     help="可选：外部 local_save_manager.gd（默认从原包现场恢复原版再最小改动）")
@@ -643,7 +643,7 @@ def main():
             final = repacked
         else:
             final = sign(repacked, work / "signed", args.ks_pass or KS_PASS)
-        out = Path(args.dir) / args.file
+        out = Path(args.dir) / f"{args.name}.apk"
         out.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(final, out)
         print(f"[v] 完成：{out}（{out.stat().st_size / 2**30:.2f} GB）")

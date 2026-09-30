@@ -7,9 +7,9 @@ from shutil import copy2
 with open("pyproject.toml", "rb") as file:
     version = load(file)["project"]["version"]
 
-parser = ArgumentParser(description="打包功夫派怀旧服存档工具（Kotlin / Android 版）")
-parser.add_argument("--dir", default="D:\\Downloads", help="输出目录（默认：D:\\Downloads）")
-parser.add_argument("--file", default="gfp.apk", help="输出文件名（默认：gfp.apk）")
+parser = ArgumentParser(description="打包功夫派怀旧服存档工具")
+parser.add_argument("--dir", default="D:\\Downloads", help="输出目录")
+parser.add_argument("--name", default="存档工具", help="输出文件名")
 args = parser.parse_args()
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -18,6 +18,6 @@ cmd = [GRADLE, "-p", str(BASE_DIR / "kotlin"), "assembleRelease", "--console=pla
 print(f"[$] {" ".join(cmd)}", flush=True)
 run(cmd, check=True)
 
-target = Path(args.dir) / args.file
+target = Path(args.dir) / f"{args.name}.apk"
 copy2(BASE_DIR / "kotlin" / "app" / "build" / "outputs" / "apk" / "release" / "app-release.apk", target)
 print(f"[v] 已输出：{target}（{target.stat().st_size / 1024 / 1024:.3f} MB，版本 {version}）")
