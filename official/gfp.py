@@ -15,7 +15,9 @@
 import re
 import sys
 import time
+from collections import deque
 from datetime import datetime
+from math import ceil
 from pathlib import Path
 from socket import fromfd, AF_INET, SOCK_STREAM
 from struct import pack, unpack_from
@@ -26,6 +28,7 @@ from dict import analyse
 from cffi import FFI
 
 BASE_DIR = Path(__file__).resolve().parent
+SEND_LIMIT = 120   # 发送速率参考上限（包/秒）：太快服务器提示"系统繁忙"
 LOG_FILE = BASE_DIR / "gfp.log"
 FLASH_CLSID = "{d27cdb6e-ae6d-11cf-96b8-444553540000}"
 DEFAULT_URL = "http://gf.61.com/Client.swf?t="
@@ -439,10 +442,14 @@ class MainWindow(QMainWindow):
         self.drain_timer.timeout.connect(self.drain_pending)
         self.drain_timer.start(50)
 
-        # 循环发送（mole 同款：FAST=1ms 间隔反复调 send；运行时按钮文本变"停止"并临时关闭拦截 Recv 防刷屏）
-        self.loop_timer = QTimer(self)
-        self.loop_timer.timeout.connect(self.do_send)
+        # 匀速发送：按 SEND_LIMIT 折算间隔逐包发出，PreciseTimer 保证节奏均匀
+        self.send_queue = deque()   # 待发队列（明文 hex）
+        self.loop_mode = False
         self._recv_before_loop = True
+        self.send_pace_timer = QTimer(self)
+        self.send_pace_timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self.send_pace_timer.setInterval(ceil(1000 / SEND_LIMIT))
+        self.send_pace_timer.timeout.connect(self.paced_send_one)
 
         # 加载后短暂应用缩放模式（拉伸到控件大小）
         self.scale_timer = QTimer(self)
@@ -495,17 +502,19 @@ class MainWindow(QMainWindow):
         return super().eventFilter(obj, event)
 
     def toggle_send_loop(self):
-        if self.loop_timer.isActive():  # 停止
-            self.loop_timer.stop()
+        if self.loop_mode:   # 停止
+            self.loop_mode = False
             self.send_loop_btn.setText("循环发送")
             if self._recv_before_loop:
                 self.cb_recv.setChecked(True)
-        else:  # 启动
+        else:                # 启动：把发送框内容排入匀速队列，循环反复发出
             self._recv_before_loop = self.cb_recv.isChecked()
             if self._recv_before_loop:
                 self.cb_recv.setChecked(False)
             self.send_loop_btn.setText("停止")
-            self.loop_timer.start(1)  # Interval.FAST
+            self.loop_mode = True
+            self.enqueue_lines()
+            self.send_pace_timer.start()
 
     def fit_table_height(self):
         """表格高度 = 边框 + 表头 + 20 行行高 + 横向滚动条（若可见）- 1。
@@ -627,8 +636,28 @@ class MainWindow(QMainWindow):
         return p.data()
 
     def do_send(self):
-        # 发送目标参考 mole.py：默认走游戏服通信号；勾选"指定通信号"则发到填写的通信号
-        # 无任何错误提示：条件不满足直接静默返回
+        # 发送目标在 paced_send_one 每拍按当前设置解析（默认游戏服通信号 / 勾选"指定通信号"用填写值）
+        # 这里只把发送框内容排入匀速队列，由 send_pace_timer 逐包发出
+        self.enqueue_lines()
+        if not self.send_pace_timer.isActive():
+            self.send_pace_timer.start()
+
+    def enqueue_lines(self):
+        for line in self.send_edit.toPlainText().splitlines():
+            hx = re.sub(r"[^0-9a-fA-F]", "", line)
+            if hx and len(hx) % 2 == 0:
+                self.send_queue.append(hx)
+
+    def paced_send_one(self):
+        """匀速发送：每拍发出 1 个包（间隔 = ceil(1000/SEND_LIMIT) ms）。
+        队列空了：循环模式自动续内容，手动模式自动停。
+        发送目标每拍按当前设置解析，目标无效时本拍跳过、队列保留。"""
+        if not self.send_queue:
+            if self.loop_mode:
+                self.enqueue_lines()
+            if not self.send_queue:
+                self.send_pace_timer.stop()
+                return
         if self.sock_check.isChecked():
             sock_txt = self.sock_edit.text().strip()
             if not sock_txt.isdigit():
@@ -636,18 +665,15 @@ class MainWindow(QMainWindow):
             sock = int(sock_txt)
         else:
             if game_socket_num == 0:
-                return
+                return   # 队列保留，等后续拍（循环模式下捕获到连接后自动继续）
             sock = game_socket_num
-        for line in self.send_edit.toPlainText().splitlines():
-            hx = re.sub(r"[^0-9a-fA-F]", "", line)
-            if not hx or len(hx) % 2:
-                continue
-            plain = bytes.fromhex(hx)                    # 输入是明文形态
-            wire = self.build_outgoing(sock, plain)      # serial/growth 链式续算 + 自动加密
-            buf = ffi.new("char[]", wire)
-            if hook.Send(sock, buf, len(wire)) > 0:
-                manual_sent[sock] = True   # 手发过包：此后该连接客户端的包都要重算 serial/growth
-                emit_packet("send", sock, get_peer(sock), wire)
+        hx = self.send_queue.popleft()
+        plain = bytes.fromhex(hx)                    # 输入是明文形态
+        wire = self.build_outgoing(sock, plain)      # serial/growth 链式续算 + 自动加密
+        buf = ffi.new("char[]", wire)
+        if hook.Send(sock, buf, len(wire)) > 0:
+            manual_sent[sock] = True   # 手发过包：此后该连接客户端的包都要重算 serial/growth
+            emit_packet("send", sock, get_peer(sock), wire)
 
 
 def main():
