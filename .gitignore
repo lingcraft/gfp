@@ -13,9 +13,9 @@ build/
 .kotlin/
 
 # ---------- 杂项 ----------
-/test*
-/*.log
-/*.json
-/*.png
+official/test.py
+*.log
+*.json
+*.png
 *.user
 local.properties

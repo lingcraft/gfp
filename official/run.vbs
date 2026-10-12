@@ -1,0 +1,1 @@
+CreateObject("WScript.Shell").Run "uv run --project ..\..\mole gfp.py", vbHide
