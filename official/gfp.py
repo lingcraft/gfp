@@ -195,14 +195,14 @@ def emit_packet(direction, sock, peer, packet):
         user_id = unpack_from("!I", packet, 6)[0]
         if cmd >= 1001:
             game_socket_num = sock
-    prefix = "[==>]" if direction == "send" else "[<==]"
-    with log_lock:
-        try:
-            if log_fh is not None:
-                log_fh.write(prefix + packet.hex().upper() + "\n")
-                log_fh.flush()
-        except Exception:
-            pass
+    # prefix = "[==>]" if direction == "send" else "[<==]"
+    # with log_lock:
+    #     try:
+    #         if log_fh is not None:
+    #             log_fh.write(prefix + packet.hex().upper() + "\n")
+    #             log_fh.flush()
+    #     except Exception:
+    #         pass
     with pending_lock:
         pending.append((direction, sock, peer, cmd, packet))
 
@@ -462,14 +462,14 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         global log_fh
-        with log_lock:
-            try:
-                if log_fh is not None:
-                    log_fh.flush()
-                    log_fh.close()
-            except Exception:
-                pass
-            log_fh = None
+        # with log_lock:
+        #     try:
+        #         if log_fh is not None:
+        #             log_fh.flush()
+        #             log_fh.close()
+        #     except Exception:
+        #         pass
+        #     log_fh = None
         super().closeEvent(event)
 
     def load_movie(self):
@@ -683,15 +683,15 @@ def main():
     hook.SetSendCallBack(on_send)
     hook.SetRecvCallBack(on_recv)
     hook.LoadFlash()
-    with log_lock:
-        try:
-            # 打开窗口前清空 gfp.log（写模式打开即清空），写会话头并持有句柄——
-            # 游戏线程每包只 write+flush，不再反复开关文件
-            log_fh = open(LOG_FILE, "w", encoding="utf-8")
-            log_fh.write(f"==== 会话开始 {datetime.now():%Y-%m-%d %H:%M:%S} ====\n")
-            log_fh.flush()
-        except Exception:
-            log_fh = None
+    # with log_lock:
+    #     try:
+    #         # 打开窗口前清空 gfp.log（写模式打开即清空），写会话头并持有句柄——
+    #         # 游戏线程每包只 write+flush，不再反复开关文件
+    #         log_fh = open(LOG_FILE, "w", encoding="utf-8")
+    #         log_fh.write(f"==== 会话开始 {datetime.now():%Y-%m-%d %H:%M:%S} ====\n")
+    #         log_fh.flush()
+    #     except Exception:
+    #         log_fh = None
     app = QApplication(sys.argv)
     app.setStyle("Fusion")  # 界面样式与 mole 一致
     win = MainWindow()
