@@ -35,16 +35,14 @@ DEFAULT_URL = "http://gf.61.com/Client.swf?t="
 
 # ---------------------------------------------------------------- hook
 ffi = FFI()
-ffi.cdef(
-    """
+ffi.cdef("""
 typedef int (*SendCallBack)(ULONG64, PCHAR, INT);
 typedef void (*RecvCallBack)(ULONG64, PCHAR, INT);
 void SetSendCallBack(SendCallBack);
 void SetRecvCallBack(RecvCallBack);
 int WINAPI Send(ULONG64, PCHAR, INT);
 void LoadFlash();
-"""
-)
+""")
 hook = ffi.dlopen(str(BASE_DIR / "hook.dll"))
 # 不使用 hook.LoadFlash()（那是给摩尔工具自带 Flash.ocx 用的方案）。
 # DllMain 已自动挂好 send/recv 钩子，Flash 直接用系统已注册的控件。
