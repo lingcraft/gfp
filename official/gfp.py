@@ -17,7 +17,6 @@ import sys
 import time
 from collections import deque
 from datetime import datetime
-from math import ceil
 from pathlib import Path
 from socket import fromfd, AF_INET, SOCK_STREAM
 from struct import pack, unpack_from
@@ -28,7 +27,7 @@ from dict import analyse
 from cffi import FFI
 
 BASE_DIR = Path(__file__).resolve().parent
-SEND_LIMIT = 120   # 发送速率参考上限（包/秒）：太快服务器提示"系统繁忙"
+SEND_DELAY = 9   # 发送间隔
 LOG_FILE = BASE_DIR / "gfp.log"
 FLASH_CLSID = "{d27cdb6e-ae6d-11cf-96b8-444553540000}"
 DEFAULT_URL = "http://gf.61.com/Client.swf?t="
@@ -446,7 +445,7 @@ class MainWindow(QMainWindow):
         self._recv_before_loop = True
         self.send_pace_timer = QTimer(self)
         self.send_pace_timer.setTimerType(Qt.TimerType.PreciseTimer)
-        self.send_pace_timer.setInterval(ceil(1000 / SEND_LIMIT))
+        self.send_pace_timer.setInterval(SEND_DELAY)
         self.send_pace_timer.timeout.connect(self.paced_send_one)
 
         # 加载后短暂应用缩放模式（拉伸到控件大小）
