@@ -89,10 +89,6 @@ class Packet:
         if data is None:
             return bytearray()
         if isinstance(data, str):
-            # 支持带标注的输入，如：“学习技能：0000000000000004670000000000000000
-            # {00009A96:拉姆ID}{00000003:技能类别}{3:技能等级}”
-            # 大括号里的值：0 开头 → 按 16 进制；否则含 [a-fA-F] 按 16 进制、纯数字按 10 进制。
-            # 统一转成 4 字节（8 位、前补 0）的 16 进制，免得手数位数。
             def to_field(match):
                 value = match.group(1)
                 if value == "":
