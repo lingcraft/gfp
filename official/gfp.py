@@ -16,7 +16,6 @@ import re
 import sys
 import time
 from collections import deque
-from datetime import datetime
 from pathlib import Path
 from socket import fromfd, AF_INET, SOCK_STREAM
 from struct import pack, unpack_from
@@ -192,9 +191,9 @@ def emit_packet(direction, sock, peer, packet):
                 "serial": unpack_from("!I", packet, 10)[0],
                 "growth": unpack_from("!I", packet, 14)[0],
             }
-        user_id = unpack_from("!I", packet, 6)[0]
-        if cmd >= 1001:
-            game_socket_num = sock
+            if cmd == 1001:
+                game_socket_num = sock
+                user_id = unpack_from("!I", packet, 6)[0]
     # prefix = "[==>]" if direction == "send" else "[<==]"
     # with log_lock:
     #     try:
