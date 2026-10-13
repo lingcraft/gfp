@@ -12,7 +12,6 @@
 序列：手发过包后，该连接上客户端后续包会在 send 钩子里 解密 → 按当前链
       重算 serial/growth → 再加密发出（mole 同款），服务器看到的序列号保持连续。
 """
-import re
 import sys
 import time
 from collections import deque
@@ -20,9 +19,8 @@ from pathlib import Path
 from socket import fromfd, AF_INET, SOCK_STREAM
 from struct import pack, unpack_from
 from threading import Lock
-
+from re import sub, search
 from dict import analyse
-
 from cffi import FFI
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -87,10 +85,22 @@ class Packet:
         return head + self.body
 
     @staticmethod
-    def to_bytearray(data):
+    def to_bytearray(data: str | bytearray | bytes | None):
         if data is None:
             return bytearray()
         if isinstance(data, str):
+            # 支持带标注的输入，如：“学习技能：0000000000000004670000000000000000
+            # {00009A96:拉姆ID}{00000003:技能类别}{3:技能等级}”
+            # 大括号里的值：0 开头 → 按 16 进制；否则含 [a-fA-F] 按 16 进制、纯数字按 10 进制。
+            # 统一转成 4 字节（8 位、前补 0）的 16 进制，免得手数位数。
+            def to_field(match):
+                value = match.group(1)
+                if value == "":
+                    return value
+                base = 16 if value.startswith("0") or search(r"[a-fA-F]", value) else 10
+                return f"{int(value, base):08X}"
+
+            data = sub(r"{([^}:]*)(?::[^}]*)?}", to_field, data.split("：", 1)[-1])
             return bytearray.fromhex(data)
         return bytearray(data)
 
@@ -640,7 +650,7 @@ class MainWindow(QMainWindow):
 
     def enqueue_lines(self):
         for line in self.send_edit.toPlainText().splitlines():
-            hx = re.sub(r"[^0-9a-fA-F]", "", line)
+            hx = sub(r"[^0-9a-fA-F]", "", line)
             if hx and len(hx) % 2 == 0:
                 self.send_queue.append(hx)
 
