@@ -22,6 +22,7 @@ from threading import Lock
 from re import sub, search
 from dict import analyse
 from cffi import FFI
+from _cffi_backend import buffer
 
 BASE_DIR = Path(__file__).resolve().parent
 SEND_DELAY = 9   # 发送间隔
@@ -55,11 +56,9 @@ pending_lock = Lock()
 # ---------------------------------------------------------------- 封包加解密
 # Packet 类直接拷贝自 test.py（算法已对照官方 com.fcc.MEncrypt/MDecrypt + 实机抓包逐字节验证）
 secret_key = b"taomee_konfu_rock77#!%&~\x00"
-key_len = len(secret_key)
+key_len, head_len, serial_num, growth_num = len(secret_key), 18, 1, 0
 user_id = 0
-serial_num = 1
-growth_num = 0
-game_socket_num = 0   # 游戏服通信号（出现 cmd>=1001 的连接），默认发送目标 / 指定通信号自动填充
+login_socket_num = 0   # 游戏服通信号（出现 cmd>=1001 的连接），默认发送目标 / 指定通信号自动填充
 
 # 各连接的 serial/growth 链状态（从观察到的发送包同步——序列号流程参考 mole.py：
 # 每个需要加密的发送包都由 Packet.encrypt() 自动续算链式 serial 并递增 growth）
@@ -73,9 +72,9 @@ class Packet:
         self.body = bytearray()
         if packet is not None:
             packet = self.to_bytearray(packet)
-            if len(packet) >= 18:
+            if len(packet) >= head_len:
                 self.length, self.cmd_id, self.user_id, self.result, self.growth_num = unpack_from("!IHIII", packet)
-                self.body = packet[18:]
+                self.body = packet[head_len:]
         elif cmd_id is not None:
             self.cmd_id = cmd_id
             self.body = self.to_bytearray(body)
@@ -85,7 +84,7 @@ class Packet:
         return head + self.body
 
     @staticmethod
-    def to_bytearray(data: str | bytearray | bytes | None):
+    def to_bytearray(data: str | bytearray | bytes | buffer | None):
         if data is None:
             return bytearray()
         if isinstance(data, str):
@@ -102,7 +101,7 @@ class Packet:
 
     def get_serial_num(self):
         global growth_num, serial_num
-        self.length, self.user_id, self.growth_num = len(self.body) + 19, user_id, growth_num
+        self.length, self.user_id, self.growth_num = len(self.body) + head_len + 1, user_id, growth_num
         growth_num = (growth_num + 1) & 0xFFFFFFFF
         if self.cmd_id == 999:
             serial_num = 0
@@ -149,17 +148,17 @@ class Packet:
 def packet_to_plain(direction: str, packet: bytes) -> bytes:
     """线上包 → 明文形态（18B 包头 + 明文包体）。
     登录服命令（cmd<1001）本身不加密；1001 发送方向免加密；其余游戏服包解密。"""
-    if len(packet) < 18:
+    if len(packet) < head_len:
         return packet
     cmd = (packet[4] << 8) | packet[5]
     if cmd < 1001 or (direction == "send" and cmd == 1001):
         return packet
-    if len(packet) <= 18:
+    if len(packet) <= head_len:
         return packet
     try:
         p = Packet(packet)
         p.decrypt()
-        return packet[:18] + bytes(p.body)
+        return packet[:head_len] + bytes(p.body)
     except Exception:
         return packet
 
@@ -186,19 +185,19 @@ def emit_packet(direction, sock, peer, packet):
     注意：本函数跑在游戏线程的 send/recv 钩子回调里，必须保持轻量——
     之前直接在这里同步刷新界面列表，点背包时的数据风暴会把 Flash 消息泵
     卡住、心跳发不出去，直接断线。解密和上列表全部挪到 UI 线程定时批量做。"""
-    global user_id, game_socket_num
+    global user_id, login_socket_num
     try:
         cmd = unpack_from("!H", packet, 4)[0] if len(packet) >= 6 else 0
     except Exception:
         cmd = 0
-    if len(packet) >= 18:
+    if len(packet) >= head_len:
         if direction == "send":
             serial_chains[sock] = {
                 "serial": unpack_from("!I", packet, 10)[0],
                 "growth": unpack_from("!I", packet, 14)[0],
             }
             if cmd == 1001:
-                game_socket_num = sock
+                login_socket_num = sock
                 user_id = unpack_from("!I", packet, 6)[0]
     # prefix = "[==>]" if direction == "send" else "[<==]"
     # with log_lock:
@@ -217,7 +216,7 @@ def rewrite_outgoing(sock, data):
     服务器以收到的最后一个包续链，客户端不知道手发包的存在，再按自己计数发就会被踢。
     参考 mole：此后该连接上客户端发的每个包都 解密 → 按当前链重算 serial/growth → 再加密发出，
     服务器看到的序列永远连续。未手发过包的连接原样放行，不碰客户端流量。"""
-    if not manual_sent.get(sock) or len(data) < 18 or data[0] or data[1]:
+    if not manual_sent.get(sock) or len(data) < head_len or data[0] or data[1]:
         return data
     global serial_num, growth_num, user_id
     try:
@@ -229,7 +228,7 @@ def rewrite_outgoing(sock, data):
         if cmd < 1001:  # 登录服：明文包，serial 简单自增、growth 恒 0
             serial = ch["serial"] + 1
             serial_chains[sock] = {"serial": serial, "growth": 0}
-            return pack("!IHIII", p.length, cmd, p.user_id, serial, 0) + data[18:]
+            return pack("!IHIII", p.length, cmd, p.user_id, serial, 0) + data[head_len:]
         # 游戏服：解密 → 按链重算 serial/growth → 再加密（1001 与空包体免加密）
         serial_num = ch["serial"]
         growth_num = ch["growth"] + 1
@@ -244,7 +243,7 @@ def rewrite_outgoing(sock, data):
         if encrypted:
             p.encrypt(is_get_serial_num=False)   # serial 已重算，只加密
         else:
-            p.length = len(p.body) + 18
+            p.length = len(p.body) + head_len
         serial_chains[sock] = {"serial": p.result, "growth": p.growth_num}
         return p.data()
     except Exception:
@@ -267,7 +266,7 @@ def feed(direction, sock, data):
                 del buf[:idx]
                 continue
             plen = int.from_bytes(buf[:4], "big")
-            if not 18 <= plen <= 65535:
+            if not head_len <= plen <= 65535:
                 del buf[:2]
                 continue
             if len(buf) < plen:
@@ -551,8 +550,8 @@ class MainWindow(QMainWindow):
 
     def change_socket(self, state: int):
         self.sock_edit.setEnabled(state > 0)
-        if state > 0 and len(self.sock_edit.text()) == 0 and game_socket_num != 0:
-            self.sock_edit.setText(str(game_socket_num))
+        if state > 0 and len(self.sock_edit.text()) == 0 and login_socket_num != 0:
+            self.sock_edit.setText(str(login_socket_num))
 
     def drain_pending(self):
         """把游戏线程入队的包批量上屏：解密也在 UI 线程做，单次最多 200 条。"""
@@ -627,12 +626,12 @@ class MainWindow(QMainWindow):
             p.user_id = user_id
         if p.cmd_id == 1001:
             p.get_serial_num()        # 1001 发送免加密；serial 照链推进
-            p.length = len(p.body) + 18
+            p.length = len(p.body) + head_len
         if p.body:
             p.encrypt()               # 自动链式 serial + 加密（mole 同款流程）
         else:
             p.get_serial_num()        # 空包体：只算 serial，不加密（实机 len=18）
-            p.length = len(p.body) + 18
+            p.length = len(p.body) + head_len
         # 链状态 = 该连接已发送的最后一包（serial/growth）
         serial_chains[sock] = {"serial": p.result, "growth": p.growth_num}
         return p.data()
@@ -666,9 +665,9 @@ class MainWindow(QMainWindow):
                 return
             sock = int(sock_txt)
         else:
-            if game_socket_num == 0:
+            if login_socket_num == 0:
                 return   # 队列保留，等后续拍（循环模式下捕获到连接后自动继续）
-            sock = game_socket_num
+            sock = login_socket_num
         hx = self.send_queue.popleft()
         plain = bytes.fromhex(hx)                    # 输入是明文形态
         wire = self.build_outgoing(sock, plain)      # serial/growth 链式续算 + 自动加密
