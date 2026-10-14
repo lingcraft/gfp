@@ -40,8 +40,6 @@ def find_login_sol():
     cands = []
     bases = [
         Path(environ["APPDATA"]) / "Macromedia" / "Flash Player" / "#SharedObjects",
-        Path(environ["LOCALAPPDATA"]) / "Macromedia" / "Flash Player" / "#SharedObjects",
-        Path(r"D:\Software\360ChromeX\Chrome\User Data\Default\Pepper Data\Shockwave Flash\WritableRoot\#SharedObjects"),
     ]
     for base in bases:
         if base.exists():
