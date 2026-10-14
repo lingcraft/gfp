@@ -13,7 +13,7 @@ build/
 .kotlin/
 
 # ---------- 杂项 ----------
-official/test.py
+test*
 *.log
 *.json
 *.png
