@@ -34,7 +34,7 @@ from _cffi_backend import buffer
 base_dir = Path(__file__).resolve().parent
 hook_log = base_dir / "hook.log"
 gfp_log = base_dir / "gfp.log"
-send_delay = 10   # 发送间隔
+send_delay = 9      # 发送间隔
 
 # ---------------------------------------------------------------- hook
 ffi = FFI()
