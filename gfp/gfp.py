@@ -410,7 +410,7 @@ class ClearThread(QThread):
                         cleared += 1
                     except OSError:
                         pass
-        logger.info(f"[cache] 已清除 replace SWF 缓存文件 {cleared} 个")
+        logger.info(f"[cache] 已清除 swf 缓存文件 {cleared} 个")
 
 
 class MainWindow(QMainWindow):
