@@ -47,12 +47,12 @@ void LoadFlash();
 """)
 
 # ---------------------------------------------------------------- 抓包核心
-stream_bufs = {}   # (Show, sock) -> bytearray 重组缓冲
-peer_cache = {}    # sock -> "ip:port"
+stream_bufs = {}  # (Show, sock) -> bytearray 重组缓冲
+peer_cache = {}  # sock -> "ip:port"
 ignored_socks = set()  # 非游戏连接（HTTP/SWF 资源流）：整条忽略，不解析/不解密/不上屏
 buf_lock = Lock()
-is_log = True         # 是否把封包写入 gfp.log（每包一行；mole 同款 loguru 方案）
-is_show_send = True   # 上屏开关（勾选框变化时更新；钩子线程读，避免跨线程访问 Qt 控件）
+is_log = True  # 是否把封包写入 gfp.log（每包一行；mole 同款 loguru 方案）
+is_show_send = True  # 上屏开关（勾选框变化时更新；钩子线程读，避免跨线程访问 Qt 控件）
 is_show_recv = True
 
 
@@ -62,30 +62,21 @@ class Show(StrEnum):
     SEND = "S ==>"
     RECV = "R <=="
 
+
 # ---------------------------------------------------------------- 封包加解密
 # Packet 类直接拷贝自 test.py（算法已对照官方 com.fcc.MEncrypt/MDecrypt + 实机抓包逐字节验证）
 secret_key = b"taomee_konfu_rock77#!%&~\x00"
 key_len, head_len, serial_num, growth_num = len(secret_key), 18, 1, 0
 user_id = 0
-login_socket_num = 0   # 游戏服通信号（出现 cmd>=1001 的连接），默认发送目标 / 指定通信号自动填充
+login_socket_num = 0  # 游戏服通信号（出现 cmd>=1001 的连接），默认发送目标 / 指定通信号自动填充
 
 # 各连接的 serial/growth 链状态（从观察到的发送包同步——序列号流程参考 mole.py：
 # 每个需要加密的发送包都由 Packet.encrypt() 自动续算链式 serial 并递增 growth）
-send_lock = Lock()   # 手动/自动注入发送互斥（hook.Send + 链重算必须原子）
-
+send_lock = Lock()  # 手动/自动注入发送互斥（hook.Send + 链重算必须原子）
 is_window_init = False  # 主窗口是否已就绪（mole 同款；__main__ 里建完窗口置 True，钩子线程用前先判断）
-
-manual_sent = {}         # sock -> True：手动发过包后，客户端后续包需要按全局链重算 serial/growth
-serial_chains = {}       # sock -> {"serial": int, "growth": int}：各连接最近一次发送包的链状态
-                         # （emit_packet 随每个发送包同步；手动发包 build_outgoing 的续算基准）
-
-STAGE_ENTRY = 2406       # CommandID.STAGE_ENTRY：进入关卡
-# 「关卡不扣次数」：原生 2406 包体 = stageID(4B) | diff(1B) | type(4B) | args(4B) | god(4B) | plugin(4B)
-# （PveEntry.confirmEnterTollGate L494-501）。关卡 ID 前 2 字节任意改（00→01 即可）：
-#   · 关卡识别/战斗生成走低 16 位（101）⇒ 战斗正常（战斗就绪与不改写逐字节一致）
-#   · 活力消耗按完整 4 字节查服务器配置表 ⇒ miss ⇒ 不扣活力
-# ⚠ serial 必须保持客户端原值：服务器按标准关卡配置的期望包体校验 serial
-#   （客户端原 serial = f(prev, crc(标准body))，重算反而与服务器期望不符 ⇒ close 踢线）
+manual_sent = {}  # sock -> True：手动发过包后，客户端后续包需要按全局链重算 serial/growth
+serial_chains = {}  # sock -> {"serial": int, "growth": int}：各连接最近一次发送包的链状态
+STAGE_ENTRY = 2406  # CommandID.STAGE_ENTRY：进入关卡
 not_deduct_stage = True  # 「关卡不扣次数」（默认开启）：进入关卡包 stageID 首字节 00→01
 
 
@@ -821,7 +812,6 @@ if __name__ == "__main__":
     windll.user32.SetProcessDpiAwarenessContext(c_void_p(-4))
     if is_log:
         logger.add(gfp_log, format="[{time:YYYY-MM-DD HH:mm:ss}] {message}", encoding="utf-8", enqueue=True)
-    start_bridge()  # 本地 SWF 注入服务（mole 同款）：swf/replace 就地替换，其余透传官服
     hook = ffi.dlopen("hook.dll")
     hook.SetSendCallBack(process_send_packet)
     hook.SetRecvCallBack(process_recv_packet)
