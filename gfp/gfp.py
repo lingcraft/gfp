@@ -24,9 +24,8 @@ from threading import Lock
 from re import sub, search
 from dict import analyse
 from os import environ
-from shutil import rmtree
 
-from bridge import start_bridge, injector_url
+from bridge import start_bridge, injector_url, replace_dir
 from ctypes import windll, c_void_p
 from cffi import FFI
 from _cffi_backend import buffer
@@ -34,7 +33,7 @@ from _cffi_backend import buffer
 base_dir = Path(__file__).resolve().parent
 hook_log = base_dir / "hook.log"
 gfp_log = base_dir / "gfp.log"
-send_delay = 9      # 发送间隔
+send_delay = 10      # 发送间隔
 
 # ---------------------------------------------------------------- hook
 ffi = FFI()
@@ -398,18 +397,30 @@ caches_dir = Path(environ["localappdata"]) / "Microsoft" / "Windows" / "INetCach
 
 
 class ClearThread(QThread):
-    """清空 Flash 磁盘缓存（mole 的 ClearThread 同款）。
+    """清除 Flash 磁盘缓存中「swf/replace 替换 SWF」对应的缓存文件（其余缓存不动）。
 
-    `caches_dir` 下每个一级子目录就是一个缓存条目 ⇒ 整目录删除；
+    Flash(IE) 缓存文件名 = `<原文件名>[序号].<扩展名>`（实机如 `Client[1].swf`、
+    `StorehousePanel[1].swf`）⇒ 以 `replace_dir` 下某 swf 文件名（去扩展名）开头的
+    .swf 缓存文件就是该 swf 的缓存副本：逐个 unlink，不再整目录清空、其它缓存保持原样。
+    （前缀匹配偏宽松：`Client.swf` 会连同 `ClientAppDLL[1].swf` 等前缀相同的缓存一起清掉，
+    多清几个只是重新下载，无副作用。）
     放线程里跑（可能上千个），完成后 emit `result` 回主线程。"""
     result = Signal()
 
     def run(self):
-        for cache_dir in caches_dir.glob("*/"):
-            try:
-                rmtree(cache_dir)
-            except Exception:
-                pass
+        # 前缀 = replace_dir 下所有 swf（含 URL 路径镜像的子目录布局）去扩展名后的文件名，小写比较
+        prefixes = tuple(path.stem.lower() for path in replace_dir.rglob("*.swf"))
+        cleared = 0
+        if prefixes:
+            for cache_file in caches_dir.rglob("*"):
+                name = cache_file.name.lower()
+                if name.endswith(".swf") and name.startswith(prefixes):
+                    try:
+                        cache_file.unlink()
+                        cleared += 1
+                    except OSError:
+                        pass
+        logger.info(f"[cache] 已清除 replace SWF 缓存文件 {cleared} 个")
         self.result.emit()
 
 
@@ -593,7 +604,8 @@ class MainWindow(QMainWindow):
         self.set_scale_mode()
 
     def clear_cache(self):
-        """清除 Flash 缓存（后台线程执行，不卡界面）——线程未在跑才启动（mole 同款）。
+        """清除 Flash 缓存中的「替换 SWF」缓存副本（后台线程执行，不卡界面）——
+        线程未在跑才启动（mole 同款启动方式）。
         清完由 `ClearThread.result` 信号触发 `refresh`，自动刷新游戏。"""
         if not self.clear_thread.isRunning():
             self.clear_thread.start()

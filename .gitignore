@@ -2,8 +2,9 @@
 
 # ---------- IDE / 编辑器 ----------
 .idea/
-.codebuddy/
 .vs/
+.codebuddy/
+.workbuddy/
 
 # ---------- 编译输出 ----------
 bin/
