@@ -397,16 +397,6 @@ caches_dir = Path(environ["localappdata"]) / "Microsoft" / "Windows" / "INetCach
 
 
 class ClearThread(QThread):
-    """清除 Flash 磁盘缓存中「swf/replace 替换 SWF」对应的缓存文件（其余缓存不动）。
-
-    Flash(IE) 缓存文件名 = `<原文件名>[序号].<扩展名>`（实机如 `Client[1].swf`、
-    `StorehousePanel[1].swf`）⇒ 以 `replace_dir` 下某 swf 文件名（去扩展名）开头的
-    .swf 缓存文件就是该 swf 的缓存副本：逐个 unlink，不再整目录清空、其它缓存保持原样。
-    （前缀匹配偏宽松：`Client.swf` 会连同 `ClientAppDLL[1].swf` 等前缀相同的缓存一起清掉，
-    多清几个只是重新下载，无副作用。）
-    放线程里跑（可能上千个），完成后 emit `result` 回主线程。"""
-    result = Signal()
-
     def run(self):
         # 前缀 = replace_dir 下所有 swf（含 URL 路径镜像的子目录布局）去扩展名后的文件名，小写比较
         prefixes = tuple(path.stem.lower() for path in replace_dir.rglob("*.swf"))
@@ -421,7 +411,6 @@ class ClearThread(QThread):
                     except OSError:
                         pass
         logger.info(f"[cache] 已清除 replace SWF 缓存文件 {cleared} 个")
-        self.result.emit()
 
 
 class MainWindow(QMainWindow):
@@ -443,7 +432,6 @@ class MainWindow(QMainWindow):
         self.action_not_deduct = self.menuBar().addAction(self.not_deduct_text(not_deduct_stage))
         self.action_not_deduct.triggered.connect(self.toggle_not_deduct)
         self.clear_thread = ClearThread()
-        self.clear_thread.result.connect(self.refresh)   # mole 同款：清完缓存自动刷新游戏
 
         central = QWidget()
         self.setCentralWidget(central)
