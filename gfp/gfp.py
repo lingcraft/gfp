@@ -600,7 +600,7 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def not_deduct_text(checked: bool) -> str:
-        return "✔关卡不扣次数" if checked else "关卡不扣次数"
+        return "✔️关卡不扣次数" if checked else "❌关卡不扣次数"
 
     def set_scale_mode(self):
         """mole 同款：LoadMovie 之后 ~1 秒内反复 `SetScaleMode(2)`，让 Flash 舞台随控件拉伸。
