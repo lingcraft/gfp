@@ -25,7 +25,7 @@ from re import sub, search
 from dict import analyse
 from os import environ
 
-from bridge import start_bridge, injector_url, replace_dir
+from bridge import start_bridge, injector_url, replace_dir, replace_resources
 from ctypes import windll, c_void_p
 from cffi import FFI
 from _cffi_backend import buffer
@@ -389,8 +389,10 @@ caches_dir = Path(environ["localappdata"]) / "Microsoft" / "Windows" / "INetCach
 
 class ClearThread(QThread):
     def run(self):
-        # 前缀 = replace_dir 下所有 swf（含 URL 路径镜像的子目录布局）去扩展名后的文件名，小写比较
-        prefixes = tuple(path.stem.lower() for path in replace_dir.rglob("*.swf"))
+        # 前缀 = replace_resources 的键（别名源的缓存挂在原请求名下）∪ replace 目录下所有 swf 的文件名（去扩展名，小写比较）
+        prefixes = {path.stem.lower() for path in replace_dir.rglob("*.swf")}
+        prefixes |= {Path(key).stem.lower() for key in replace_resources}
+        prefixes = tuple(prefixes)
         cleared = 0
         if prefixes:
             for cache_file in caches_dir.rglob("*"):
@@ -583,9 +585,8 @@ class MainWindow(QMainWindow):
         self.set_scale_mode()
 
     def clear_cache(self):
-        """清除 Flash 缓存中的「替换 SWF」缓存副本（后台线程执行，不卡界面）——
-        线程未在跑才启动（mole 同款启动方式）。
-        清完由 `ClearThread.result` 信号触发 `refresh`，自动刷新游戏。"""
+        """清除 Flash 缓存中的「替换 SWF / 别名（replace_resources 键）」缓存副本（后台线程执行，不卡界面）——
+        线程未在跑才启动（mole 同款启动方式）；清完不自动刷新（需要时手动点「刷新游戏」）。"""
         if not self.clear_thread.isRunning():
             self.clear_thread.start()
 

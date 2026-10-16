@@ -28,21 +28,21 @@ from requests import Session
 
 base_dir = Path(__file__).resolve().parent
 replace_dir = base_dir / "swf" / "replace"  # 替换 SWF（覆盖官服同名文件）
-append_dir = base_dir / "swf" / "append"    # 追加 SWF（额外 mod）
-official_host = "gf.61.com"                 # 官方资源服域名（Flash 的身份 / sol 归属 / 缓存键都靠它）
-chunk_size = 4096                           # 流式收发块大小
-
+append_dir = base_dir / "swf" / "append"  # 追加 SWF（额外 mod）
+official_host = "gf.61.com"  # 官方资源服域名（Flash 的身份 / sol 归属 / 缓存键都靠它）
+injector_port: int = 11000  # 注入服务端口：默认 11000（避开 mole 的 10000 号段），被占用按 +2 顺延（11000→11002→…→11038）；
+chunk_size = 4096  # 流式收发块大小
+injector_started = False  # 幂等标记：重复调用 start_bridge() 不重复起服务（__main__ 与窗口各调一次）
 session = Session()
 session.trust_env = False  # 上游必须直连：本进程代理已指向自己（set_proxy）——走代理会自环；
-                           # 同时不走环境变量代理（开着 Fiddler 之类时也不会被劫走）
-injector_prefer_port = 11000  # 默认端口（mole 从 10000 起，我们从 11000 起避开它的号段）；
-                              # 端口不写进 URL（URL 恒为 http://gf.61.com/… 官方形态 ⇒ 缓存键与官方一致）——
-                              # 实际端口通过进程级代理设置告诉 wininet（见 set_proxy）
-injector_port: int = 0        # start_bridge() 后为实际监听端口
-injector_started = False      # 幂等标记：重复调用 start_bridge() 不重复起服务（__main__ 与窗口各调一次）
-rules_file = replace_dir / "rules.txt"   # 规则表：每行 "<URL 匹配串> | <本地文件路径>"
-rules_cache = None
-rules_ts = 0.0
+replace_resources = {
+    "BuyActivityPointPanel.swf": "TestPanel.swf",
+    "ClientAppDLL.swf": "【修复】电信进不去.swf",
+    "StorehousePanel.swf": "【材料】仓库.swf",
+    "SummonStoragePanel.swf": "【宠物】仓库.swf",
+    "EveryDayOnlinePanel.swf": "【宠物】刷宠物.swf",
+    "VIP2017YearPrivilegePanel.swf": "【材料】卡成仙.swf"
+}  # 资源替换：请求文件名命中 source → 用 replace_dir/<target>；缺则取官服 /module/app/<target>
 
 
 class INTERNET_PROXY_INFO(ctypes.Structure):
@@ -71,39 +71,13 @@ def set_proxy(port: int, host: str = "127.0.0.1") -> None:
         logger.warning(f"[inject] 进程代理设置异常：{e}")
 
 
-def load_rules() -> list:
-    """读 replace/rules.txt（带 1 秒缓存，避免每请求读盘）。"""
-    global rules_cache, rules_ts
-    if rules_cache is not None and time.perf_counter() - rules_ts <= 1.0:
-        return rules_cache
-    rules_cache = []
-    try:
-        if rules_file.is_file():
-            for line in rules_file.read_text(encoding="utf-8", errors="replace").splitlines():
-                line = line.strip()
-                if not line or line.startswith("#") or "|" not in line:
-                    continue
-                pat, sep, path = line.partition("|")
-                rules_cache.append((pat.strip(), path.strip()))
-    except OSError:
-        pass
-    rules_ts = time.perf_counter()
-    return rules_cache
-
-
 def find_local(name: str, url: str) -> "tuple[str, Path] | None":
-    """按优先级找本地替换文件（对应"别人的登录器"那张规则表的能力）：
-    ① `swf/replace/rules.txt` 规则表：每行 `<URL 匹配串> | <本地文件路径>`（`#` 注释、空行忽略）；
-    ② `replace/<URL 路径镜像>`，如 `replace/module/app/EveryDayOnlinePanel.swf`；
-    ③ `replace/<文件名>` / `append/<文件名>`（按文件名找，兼容旧用法）。
+    """按优先级找本地替换文件：
+    ① `replace/<URL 路径镜像>`，如 `replace/module/app/EveryDayOnlinePanel.swf`；
+    ② `replace/<文件名>` / `append/<文件名>`（按文件名找，兼容旧用法）。
     返回 (来源说明, 文件路径)；都没命中返回 None。"""
     key = url.split("?", 1)[0]
-    for pat, path in load_rules():                      # ① 规则表
-        if pat in key:
-            p = Path(path)
-            if p.is_file():
-                return f"rules.txt ← {pat}", p
-    rel = key.split("://", 1)[-1]                       # ② 目录镜像：去掉 http://
+    rel = key.split("://", 1)[-1]                       # ① 目录镜像：去掉 http://
     rel = rel.split("/", 1)[-1] if "/" in rel else rel  # 再去掉域名
     folders = (("replace", replace_dir), ("append", append_dir))
     if rel:
@@ -111,7 +85,7 @@ def find_local(name: str, url: str) -> "tuple[str, Path] | None":
             p = folder / Path(rel)
             if p.is_file():
                 return f"{label}/{rel}", p
-    for label, folder in folders:                       # ③ 文件名（旧行为）
+    for label, folder in folders:                       # ② 文件名（旧行为）
         p = folder / name
         if p.is_file():
             return f"{label}/", p
@@ -183,15 +157,26 @@ class InjectHandler(BaseHTTPRequestHandler):
             proxy_host, path = (rest, "/") if slash < 0 else (rest[:slash], rest[slash:])
         name = path.split("?", 1)[0].rsplit("/", 1)[-1]
         lower = name.lower()
-        # 1) 本地替换（仅官方域名）：① rules.txt ② replace/<URL 路径镜像> ③ 按文件名（replace→append）
-        if (proxy_host is None or proxy_host.lower() == official_host) and (lower.endswith(".swf") or lower.endswith(".xml")):
+        is_own = proxy_host is None or proxy_host.lower() == official_host
+        # 1) 别名替换（仅官方域名）：请求文件名命中 replace_resources → 用 replace_dir/<target>；缺则取官服 /module/app/<target>
+        if is_own and (target := replace_resources.get(name)):
+            local = replace_dir / target
+            if local.is_file():
+                logger.info(f"[inject] {name} → 本地 replace/{target}（别名替换）")
+                self.serve_local_stream(local, content_type_for(target))
+            else:
+                logger.info(f"[inject] {name} → 官服 /module/app/{target}（别名替换）")
+                self.relay(f"/module/app/{target}")
+            return
+        # 2) 本地替换（仅官方域名）：① replace/<URL 路径镜像> ② 按文件名（replace→append）
+        if is_own and (lower.endswith(".swf") or lower.endswith(".xml")):
             found = find_local(name, path)
             if found:
                 label, local = found
                 logger.info(f"[inject] {name} → 本地 {label}")
                 self.serve_local_stream(local, content_type_for(name))
                 return
-        # 2) 其余请求透传上游：官方域名 → 官服；其它域名（代理卷进来的）→ 原目标主机
+        # 3) 其余请求透传上游：官方域名 → 官服；其它域名（代理卷进来的）→ 原目标主机
         self.relay(path, proxy_host or official_host)
 
     def relay(self, path: str, host: str = official_host) -> None:
@@ -281,17 +266,17 @@ class ExclusiveHTTPServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-def start_bridge(port: int = injector_prefer_port) -> int:
+def start_bridge() -> int:
     """启动本地注入服务，返回实际端口（**幂等**：已启动则直接返回现有端口）。
 
-    端口策略：默认 **11000**，被占用时按 **+2 依次顺延**（11000 → 11002 → … → 11038）；
+    端口策略：从 `injector_port`（默认 **11000**）起，被占用时按 **+2 依次顺延**（11000 → 11002 → … → 11038）；
     端口不写进 URL（URL 恒为 `http://gf.61.com/…` 官方形态 ⇒ WinINet 缓存键与官方一致），
     实际端口通过进程级代理设置（`set_proxy`）告诉 wininet。"""
     global injector_port, injector_started
     if injector_started:
         return injector_port
     last_error = None
-    for candidate in range(port, port + 40, 2):
+    for candidate in range(injector_port, injector_port + 40, 2):
         try:
             server = ExclusiveHTTPServer(("127.0.0.1", candidate), InjectHandler)
         except OSError as e:
@@ -304,7 +289,7 @@ def start_bridge(port: int = injector_prefer_port) -> int:
         Thread(target=server.serve_forever, daemon=True, name="bridge").start()
         logger.info(f"[inject] 本地 SWF 注入服务: 127.0.0.1:{injector_port} ← {official_host}（Flash 身份=官方域名）")
         return candidate
-    raise RuntimeError(f"注入服务端口 {port}~{port + 38} 全被占用：{last_error}")
+    raise RuntimeError(f"注入服务端口 {injector_port}~{injector_port + 38} 全被占用：{last_error}")
 
 
 def injector_url(path: str = "/Client.swf") -> str:
