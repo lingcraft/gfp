@@ -1,3 +1,4 @@
+from os import environ
 from tomllib import load
 from argparse import ArgumentParser
 from subprocess import run
@@ -32,4 +33,4 @@ cmd = " ".join([
     "--onefile"
 ])
 
-run(cmd, input=b"Yes\n", shell=True)
+run(cmd, input=b"Yes\n", shell=True, env={**environ, "CL": f"{environ.get("CL", "")} /source-charset:utf-8".strip()})
