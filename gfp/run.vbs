@@ -1,1 +1,0 @@
-CreateObject("WScript.Shell").Run "uv run gfp.py", vbHide
