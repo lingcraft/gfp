@@ -3,9 +3,8 @@ name = "gfp"
 version = "1.0.0"
 requires-python = ">=3.13"
 dependencies = [
-    "pycryptodome==4.5.0",
     "pyside6==6.12.0",
-    "nuitka==4.3",
+    "nuitka==4.3.5",
     "zstandard==0.25",
     "cffi==2.1.1",
     "loguru==0.8.0",
